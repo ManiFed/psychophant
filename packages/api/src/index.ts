@@ -13,10 +13,38 @@ const server = Fastify({
   },
 });
 
+// CORS configuration
+const getAllowedOrigins = (): string[] => {
+  const origins: string[] = [];
+
+  // Production web URL
+  if (process.env.WEB_URL) {
+    origins.push(process.env.WEB_URL);
+  }
+
+  // Legacy APP_URL support
+  if (process.env.APP_URL) {
+    origins.push(process.env.APP_URL);
+  }
+
+  // Always allow the Railway production web domain
+  origins.push('https://psychophantweb-production.up.railway.app');
+
+  // Development origins
+  if (process.env.NODE_ENV !== 'production') {
+    origins.push('http://localhost:3000');
+    origins.push('http://127.0.0.1:3000');
+  }
+
+  return [...new Set(origins)]; // Deduplicate
+};
+
 // Register plugins
 await server.register(cors, {
-  origin: process.env.APP_URL || 'http://localhost:3000',
+  origin: getAllowedOrigins(),
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 });
 
 await server.register(jwt, {
