@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middleware/auth.js';
-import { AVAILABLE_MODELS, MAX_AGENTS_PER_CONVERSATION } from '@psychophant/shared';
+import { AVAILABLE_MODELS, MAX_AGENTS_PER_CONVERSATION } from '../shared/index.js';
 
 const validModels = AVAILABLE_MODELS.map((m) => m.id);
 

@@ -12,7 +12,7 @@ import {
   MIN_DEBATE_ROUNDS,
   ForceAgreementPhase,
   FORCE_AGREEMENT_MAX_ITERATIONS,
-} from '@psychophant/shared';
+} from '../shared/index.js';
 
 // Route interfaces
 interface ConversationIdParams extends RouteGenericInterface {

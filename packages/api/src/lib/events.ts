@@ -1,5 +1,5 @@
 import { redis } from './redis.js';
-import { SSEEventType } from '@psychophant/shared';
+import { SSEEventType } from '../shared/index.js';
 
 export interface SSEEvent<T = unknown> {
   type: SSEEventType;

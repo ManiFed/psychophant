@@ -11,7 +11,7 @@ import { orchestrationQueue } from '../index.js';
 import {
   ForceAgreementPhase,
   FORCE_AGREEMENT_MAX_ITERATIONS,
-} from '@psychophant/shared';
+} from '../shared/index.js';
 
 interface ForceAgreementState {
   phase: ForceAgreementPhase;

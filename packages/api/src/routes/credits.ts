@@ -7,7 +7,7 @@ import {
   DAILY_FREE_CREDITS_CENTS,
   CREDIT_PACKAGES,
   CreditPackageId,
-} from '@psychophant/shared';
+} from '../shared/index.js';
 
 interface TransactionsQuery extends RouteGenericInterface {
   Querystring: { limit?: string; offset?: string };

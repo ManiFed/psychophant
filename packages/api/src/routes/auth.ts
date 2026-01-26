@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middleware/auth.js';
-import { DAILY_FREE_CREDITS_CENTS } from '@psychophant/shared';
+import { DAILY_FREE_CREDITS_CENTS } from '../shared/index.js';
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email address'),
