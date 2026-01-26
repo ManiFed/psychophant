@@ -1,0 +1,217 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ Users & Auth ============
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  creditBalance       CreditBalance?
+  creditTransactions  CreditTransaction[]
+  stripeCustomer      StripeCustomer?
+  agents              Agent[]
+  conversations       Conversation[]
+  agentTemplates      AgentTemplate[]
+
+  @@map("users")
+}
+
+model CreditBalance {
+  userId               String   @id @map("user_id")
+  freeCreditsCents     Int      @default(10) @map("free_credits_cents")
+  purchasedCreditsCents Int     @default(0) @map("purchased_credits_cents")
+  lastFreeReset        DateTime @default(now()) @map("last_free_reset")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("credit_balances")
+}
+
+model CreditTransaction {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  amountCents     Int      @map("amount_cents")
+  transactionType String   @map("transaction_type")
+  sourceType      String?  @map("source_type")
+  referenceId     String?  @map("reference_id")
+  description     String?
+  balanceAfterCents Int    @map("balance_after_cents")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("credit_transactions")
+}
+
+model StripeCustomer {
+  userId           String @id @map("user_id")
+  stripeCustomerId String @unique @map("stripe_customer_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("stripe_customers")
+}
+
+// ============ Agents ============
+
+model Agent {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  name         String
+  model        String
+  role         String
+  systemPrompt String?  @map("system_prompt")
+  avatarColor  String   @default("#6366f1") @map("avatar_color")
+  isTemplate   Boolean  @default(false) @map("is_template")
+  templateUses Int      @default(0) @map("template_uses")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user          User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templates     AgentTemplate[]
+  participants  ConversationParticipant[]
+  messages      Message[]
+
+  @@index([userId])
+  @@index([isTemplate])
+  @@map("agents")
+}
+
+model AgentTemplate {
+  id            String   @id @default(uuid())
+  sourceAgentId String?  @map("source_agent_id")
+  creatorId     String   @map("creator_id")
+  name          String
+  model         String
+  role          String
+  systemPrompt  String?  @map("system_prompt")
+  description   String?
+  tags          String[]
+  cloneCount    Int      @default(0) @map("clone_count")
+  isPublic      Boolean  @default(true) @map("is_public")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  sourceAgent Agent? @relation(fields: [sourceAgentId], references: [id], onDelete: SetNull)
+  creator     User   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([tags])
+  @@index([cloneCount(sort: Desc)])
+  @@map("agent_templates")
+}
+
+// ============ Conversations ============
+
+model Conversation {
+  id                    String   @id @default(uuid())
+  userId                String   @map("user_id")
+  title                 String?
+  mode                  String   // 'debate' | 'collaborate'
+  status                String   @default("active") // 'active' | 'paused' | 'completed' | 'force_agreement'
+  totalRounds           Int?     @map("total_rounds")
+  currentRound          Int      @default(1) @map("current_round")
+  forceAgreementState   Json?    @map("force_agreement_state")
+  parentConversationId  String?  @map("parent_conversation_id")
+  branchPointMessageId  String?  @map("branch_point_message_id")
+  isPublic              Boolean  @default(false) @map("is_public")
+  publicSlug            String?  @unique @map("public_slug")
+  totalCostCents        Int      @default(0) @map("total_cost_cents")
+  initialPrompt         String?  @map("initial_prompt")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  user              User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentConversation Conversation?            @relation("ConversationBranches", fields: [parentConversationId], references: [id], onDelete: SetNull)
+  branches          Conversation[]            @relation("ConversationBranches")
+  participants      ConversationParticipant[]
+  messages          Message[]
+  coalitionEvents   CoalitionEvent[]
+
+  @@index([userId])
+  @@index([publicSlug])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  agentId        String   @map("agent_id")
+  turnOrder      Int      @map("turn_order")
+  isActive       Boolean  @default(true) @map("is_active")
+  nonNegotiables Json?    @map("non_negotiables")
+  currentVote    String?  @map("current_vote") // 'approve' | 'reject' | null
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, agentId])
+  @@unique([conversationId, turnOrder])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id              String   @id @default(uuid())
+  conversationId  String   @map("conversation_id")
+  agentId         String?  @map("agent_id")
+  userId          String?  @map("user_id")
+  content         String
+  role            String   // 'agent' | 'user' | 'system' | 'synthesizer'
+  roundNumber     Int?     @map("round_number")
+  modelUsed       String?  @map("model_used")
+  inputTokens     Int?     @map("input_tokens")
+  outputTokens    Int?     @map("output_tokens")
+  costCents       Int      @default(0) @map("cost_cents")
+  generationTimeMs Int?    @map("generation_time_ms")
+  messageType     String   @default("standard") @map("message_type") // 'standard' | 'non_negotiables' | 'synthesis' | 'vote' | 'revision' | 'forced_resolution'
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agent        Agent?            @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  coalitionEvents CoalitionEvent[]
+
+  @@index([conversationId, createdAt])
+  @@index([agentId])
+  @@map("messages")
+}
+
+model CoalitionEvent {
+  id                 String   @id @default(uuid())
+  conversationId     String   @map("conversation_id")
+  detectedAtMessageId String  @map("detected_at_message_id")
+  agentIds           String[] @map("agent_ids")
+  agreementTopic     String?  @map("agreement_topic")
+  confidenceScore    Decimal? @map("confidence_score") @db.Decimal(3, 2)
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  detectedAtMessage Message     @relation(fields: [detectedAtMessageId], references: [id], onDelete: Cascade)
+
+  @@map("coalition_events")
+}
+
+// ============ Exports ============
+
+model Export {
+  id             String    @id @default(uuid())
+  conversationId String    @map("conversation_id")
+  userId         String    @map("user_id")
+  format         String    // 'pdf' | 'markdown'
+  fileUrl        String?   @map("file_url")
+  expiresAt      DateTime? @map("expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@map("exports")
+}

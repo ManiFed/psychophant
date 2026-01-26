@@ -1,0 +1,26 @@
+{
+  "name": "psychophant",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:push": "turbo run db:push --filter=@psychophant/api",
+    "db:migrate": "turbo run db:migrate --filter=@psychophant/api",
+    "db:generate": "turbo run db:generate --filter=@psychophant/api"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "packageManager": "npm@10.2.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
