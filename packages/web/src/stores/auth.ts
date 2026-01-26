@@ -39,7 +39,12 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
           });
         } catch (err) {
-          const message = err instanceof Error ? err.message : 'Login failed';
+          let message = 'Login failed';
+          if (err instanceof TypeError && err.message === 'Failed to fetch') {
+            message = 'Unable to connect to server. The API service may be starting up - please try again in a moment.';
+          } else if (err instanceof Error) {
+            message = err.message;
+          }
           set({ error: message, isLoading: false });
           throw err;
         }
@@ -55,7 +60,12 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
           });
         } catch (err) {
-          const message = err instanceof Error ? err.message : 'Registration failed';
+          let message = 'Registration failed';
+          if (err instanceof TypeError && err.message === 'Failed to fetch') {
+            message = 'Unable to connect to server. The API service may be starting up - please try again in a moment.';
+          } else if (err instanceof Error) {
+            message = err.message;
+          }
           set({ error: message, isLoading: false });
           throw err;
         }

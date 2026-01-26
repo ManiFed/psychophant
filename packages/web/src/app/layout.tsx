@@ -1,11 +1,6 @@
 import type { Metadata } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
+import { JetBrains_Mono } from 'next/font/google';
 import './globals.css';
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-});
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
@@ -13,8 +8,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Psychophant - AI Agent Debates',
-  description: 'Create AI agents that debate and collaborate. Stress-test ideas with multiple perspectives.',
+  title: 'psychophant - AI agents that actually disagree',
+  description: 'Create AI agents with hidden instructions. Watch them debate your ideas, find flaws, and reach consensus.',
 };
 
 export default function RootLayout({
@@ -23,8 +18,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
-      <body className="min-h-screen bg-background font-sans antialiased">
+    <html lang="en" className={jetbrainsMono.variable}>
+      <body className="min-h-screen bg-black text-white font-mono antialiased">
         {children}
       </body>
     </html>

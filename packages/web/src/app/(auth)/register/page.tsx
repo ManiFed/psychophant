@@ -3,9 +3,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { useAuthStore } from '@/stores/auth';
 
 export default function RegisterPage() {
@@ -45,72 +42,81 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-2 text-center">
-        <h1 className="text-3xl font-bold">Create an account</h1>
-        <p className="text-muted-foreground">
-          Get started with $0.10 free credit daily
+    <div className="space-y-8">
+      <div className="space-y-2">
+        <h1 className="text-2xl font-bold">create account</h1>
+        <p className="text-xs text-white/50">
+          get started with $0.10 free credit daily
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-6">
         {(error || formError) && (
-          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="border border-red-500/50 bg-red-500/10 p-3 text-xs text-red-400">
             {error || formError}
           </div>
         )}
 
         <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
-          <Input
+          <label htmlFor="email" className="text-xs text-white/70">email</label>
+          <input
             id="email"
             type="email"
             placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={isLoading}
+            className="w-full bg-white/5 border border-white/10 px-4 py-3 text-sm placeholder:text-white/30 focus:outline-none focus:border-orange-500/50 disabled:opacity-50 transition-colors"
           />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
-          <Input
+          <label htmlFor="password" className="text-xs text-white/70">password</label>
+          <input
             id="password"
             type="password"
-            placeholder="At least 8 characters"
+            placeholder="at least 8 characters"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={isLoading}
+            className="w-full bg-white/5 border border-white/10 px-4 py-3 text-sm placeholder:text-white/30 focus:outline-none focus:border-orange-500/50 disabled:opacity-50 transition-colors"
           />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="confirmPassword">Confirm Password</Label>
-          <Input
+          <label htmlFor="confirmPassword" className="text-xs text-white/70">confirm password</label>
+          <input
             id="confirmPassword"
             type="password"
-            placeholder="Confirm your password"
+            placeholder="confirm your password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             disabled={isLoading}
+            className="w-full bg-white/5 border border-white/10 px-4 py-3 text-sm placeholder:text-white/30 focus:outline-none focus:border-orange-500/50 disabled:opacity-50 transition-colors"
           />
         </div>
 
-        <Button type="submit" className="w-full" isLoading={isLoading}>
-          Create Account
-        </Button>
+        <button
+          type="submit"
+          disabled={isLoading}
+          className="w-full bg-orange-500 text-black py-3 text-sm font-medium hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {isLoading ? 'creating account...' : 'create account'}
+        </button>
       </form>
 
-      <p className="text-center text-sm text-muted-foreground">
-        Already have an account?{' '}
-        <Link href="/login" className="text-primary hover:underline">
-          Sign in
-        </Link>
-      </p>
+      <div className="space-y-3">
+        <p className="text-center text-xs text-white/50">
+          already have an account?{' '}
+          <Link href="/login" className="text-orange-500 hover:text-orange-400 transition-colors">
+            sign in
+          </Link>
+        </p>
 
-      <p className="text-center text-xs text-muted-foreground">
-        By creating an account, you agree to our Terms of Service and Privacy Policy.
-      </p>
+        <p className="text-center text-xs text-white/30">
+          by creating an account, you agree to our terms of service and privacy policy.
+        </p>
+      </div>
     </div>
   );
 }
