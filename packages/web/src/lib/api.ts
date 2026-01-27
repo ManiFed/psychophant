@@ -107,6 +107,12 @@ export const agentsApi = {
   list: (token: string) =>
     fetchApi<{ agents: Agent[] }>('/api/agents', { token }),
 
+  listPublic: () =>
+    fetchApi<{ agents: PublicAgent[] }>('/api/agents/public'),
+
+  getModels: () =>
+    fetchApi<{ models: OpenRouterModel[] }>('/api/agents/models'),
+
   create: (token: string, data: CreateAgentData) =>
     fetchApi<{ agent: Agent }>('/api/agents', {
       token,
@@ -125,6 +131,12 @@ export const agentsApi = {
     fetchApi<{ success: boolean }>(`/api/agents/${id}`, {
       token,
       method: 'DELETE',
+    }),
+
+  clone: (token: string, id: string) =>
+    fetchApi<{ agent: Agent }>(`/api/agents/${id}/clone`, {
+      token,
+      method: 'POST',
     }),
 };
 
@@ -211,10 +223,25 @@ interface Agent {
   role: string;
   systemPrompt: string | null;
   avatarColor: string;
+  avatarUrl: string | null;
   isTemplate: boolean;
+  isPublic: boolean;
   templateUses: number;
   createdAt: string;
   updatedAt: string;
+}
+
+interface PublicAgent {
+  id: string;
+  name: string;
+  model: string;
+  role: string;
+  avatarColor: string;
+  avatarUrl: string | null;
+  isTemplate: boolean;
+  templateUses: number;
+  createdAt: string;
+  user: { email: string };
 }
 
 interface CreateAgentData {
@@ -223,6 +250,19 @@ interface CreateAgentData {
   role: string;
   systemPrompt?: string;
   avatarColor?: string;
+  avatarUrl?: string | null;
+  isPublic?: boolean;
+}
+
+interface OpenRouterModel {
+  id: string;
+  name: string;
+  description?: string;
+  contextLength: number;
+  pricing: {
+    prompt: number;
+    completion: number;
+  };
 }
 
 interface Conversation {
@@ -289,7 +329,9 @@ interface CreditTransaction {
 export { ApiError };
 export type {
   Agent,
+  PublicAgent,
   CreateAgentData,
+  OpenRouterModel,
   Conversation,
   CreateConversationData,
   Message,

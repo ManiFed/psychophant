@@ -76,7 +76,9 @@ model Agent {
   role         String
   systemPrompt String?  @map("system_prompt")
   avatarColor  String   @default("#6366f1") @map("avatar_color")
+  avatarUrl    String?  @map("avatar_url")
   isTemplate   Boolean  @default(false) @map("is_template")
+  isPublic     Boolean  @default(false) @map("is_public")
   templateUses Int      @default(0) @map("template_uses")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")

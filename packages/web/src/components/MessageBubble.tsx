@@ -50,10 +50,14 @@ export function MessageBubble({ message, participants, isStreaming }: MessageBub
         <div className="max-w-[80%] bg-white/5 border border-white/10 p-4">
           <div className="flex items-center gap-2 mb-2">
             <div
-              className="w-6 h-6 flex items-center justify-center text-xs font-bold"
-              style={{ backgroundColor: agent.avatarColor }}
+              className="w-6 h-6 flex items-center justify-center text-xs font-bold overflow-hidden"
+              style={{ backgroundColor: agent.avatarUrl ? 'transparent' : agent.avatarColor }}
             >
-              {agent.name.charAt(0).toUpperCase()}
+              {agent.avatarUrl ? (
+                <img src={agent.avatarUrl} alt={agent.name} className="w-full h-full object-cover" />
+              ) : (
+                agent.name.charAt(0).toUpperCase()
+              )}
             </div>
             <span className="text-xs text-white/70">{agent.name}</span>
             {message.modelUsed && (

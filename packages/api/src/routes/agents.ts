@@ -2,26 +2,106 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middleware/auth.js';
-import { AVAILABLE_MODELS, MAX_AGENTS_PER_CONVERSATION } from '../shared/index.js';
 
-const validModels = AVAILABLE_MODELS.map((m) => m.id);
-
+// We validate models dynamically from OpenRouter instead of a static list
 const createAgentSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
-  model: z.string().refine((m) => validModels.includes(m as any), {
-    message: 'Invalid model',
-  }),
+  model: z.string().min(1, 'Model is required'),
   role: z.string().min(1, 'Role is required').max(500),
   systemPrompt: z.string().max(10000).optional(),
   avatarColor: z
     .string()
     .regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid color format')
     .optional(),
+  avatarUrl: z.string().url().optional().nullable(),
+  isPublic: z.boolean().optional(),
 });
 
 const updateAgentSchema = createAgentSchema.partial();
 
+// Cache for OpenRouter models
+let modelsCache: { models: OpenRouterModel[]; fetchedAt: number } | null = null;
+const CACHE_TTL = 1000 * 60 * 60; // 1 hour
+
+interface OpenRouterModel {
+  id: string;
+  name: string;
+  description?: string;
+  context_length: number;
+  pricing: {
+    prompt: string;
+    completion: string;
+  };
+  top_provider?: {
+    is_moderated: boolean;
+  };
+}
+
+async function fetchOpenRouterModels(): Promise<OpenRouterModel[]> {
+  // Check cache
+  if (modelsCache && Date.now() - modelsCache.fetchedAt < CACHE_TTL) {
+    return modelsCache.models;
+  }
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/models', {
+      headers: {
+        'HTTP-Referer': process.env.APP_URL || 'http://localhost:3000',
+      },
+    });
+
+    if (!response.ok) {
+      console.error('Failed to fetch OpenRouter models:', response.statusText);
+      return modelsCache?.models || [];
+    }
+
+    const data = (await response.json()) as { data: OpenRouterModel[] };
+    const models = data.data || [];
+
+    // Update cache
+    modelsCache = { models, fetchedAt: Date.now() };
+
+    return models;
+  } catch (err) {
+    console.error('Error fetching OpenRouter models:', err);
+    return modelsCache?.models || [];
+  }
+}
+
 export async function agentRoutes(server: FastifyInstance) {
+  // Get available models from OpenRouter
+  server.get('/models', async () => {
+    const models = await fetchOpenRouterModels();
+
+    // Transform to a simpler format for the frontend
+    const formattedModels = models.map((m) => ({
+      id: m.id,
+      name: m.name,
+      description: m.description,
+      contextLength: m.context_length,
+      pricing: {
+        prompt: parseFloat(m.pricing.prompt),
+        completion: parseFloat(m.pricing.completion),
+      },
+    }));
+
+    // Sort by popularity/common usage
+    const popularProviders = ['anthropic', 'openai', 'google', 'meta-llama', 'mistralai'];
+    formattedModels.sort((a, b) => {
+      const aProvider = a.id.split('/')[0];
+      const bProvider = b.id.split('/')[0];
+      const aIndex = popularProviders.indexOf(aProvider);
+      const bIndex = popularProviders.indexOf(bProvider);
+
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return { models: formattedModels };
+  });
+
   // List user's agents
   server.get(
     '/',
@@ -36,6 +116,33 @@ export async function agentRoutes(server: FastifyInstance) {
     }
   );
 
+  // List public/template agents
+  server.get('/public', async () => {
+    const agents = await prisma.agent.findMany({
+      where: {
+        OR: [{ isTemplate: true }, { isPublic: true }],
+      },
+      orderBy: { templateUses: 'desc' },
+      take: 50,
+      select: {
+        id: true,
+        name: true,
+        model: true,
+        role: true,
+        avatarColor: true,
+        avatarUrl: true,
+        isTemplate: true,
+        templateUses: true,
+        createdAt: true,
+        user: {
+          select: { email: true },
+        },
+      },
+    });
+
+    return { agents };
+  });
+
   // Get single agent
   server.get(
     '/:agentId',
@@ -47,7 +154,11 @@ export async function agentRoutes(server: FastifyInstance) {
       const agent = await prisma.agent.findFirst({
         where: {
           id: request.params.agentId,
-          userId: request.user.id,
+          OR: [
+            { userId: request.user.id },
+            { isPublic: true },
+            { isTemplate: true },
+          ],
         },
       });
 
@@ -86,6 +197,8 @@ export async function agentRoutes(server: FastifyInstance) {
             role: body.role,
             systemPrompt: body.systemPrompt,
             avatarColor: body.avatarColor || '#6366f1',
+            avatarUrl: body.avatarUrl,
+            isPublic: body.isPublic || false,
           },
         });
 
@@ -187,7 +300,7 @@ export async function agentRoutes(server: FastifyInstance) {
     }
   );
 
-  // Clone agent from template
+  // Clone agent from template or public agent
   server.post(
     '/:agentId/clone',
     { preHandler: [authenticate] },
@@ -195,11 +308,15 @@ export async function agentRoutes(server: FastifyInstance) {
       request: FastifyRequest<{ Params: { agentId: string } }>,
       reply: FastifyReply
     ) => {
-      // Find the source agent (must be a template or user's own)
+      // Find the source agent (must be a template, public, or user's own)
       const sourceAgent = await prisma.agent.findFirst({
         where: {
           id: request.params.agentId,
-          OR: [{ userId: request.user.id }, { isTemplate: true }],
+          OR: [
+            { userId: request.user.id },
+            { isTemplate: true },
+            { isPublic: true },
+          ],
         },
       });
 
@@ -216,16 +333,52 @@ export async function agentRoutes(server: FastifyInstance) {
           role: sourceAgent.role,
           systemPrompt: sourceAgent.systemPrompt,
           avatarColor: sourceAgent.avatarColor,
+          avatarUrl: sourceAgent.avatarUrl,
         },
       });
 
       // Increment template uses if applicable
-      if (sourceAgent.isTemplate) {
+      if (sourceAgent.isTemplate || sourceAgent.isPublic) {
         await prisma.agent.update({
           where: { id: sourceAgent.id },
           data: { templateUses: { increment: 1 } },
         });
       }
+
+      return { agent };
+    }
+  );
+
+  // Upload avatar image (expects URL from client-side upload to Cloudinary/S3)
+  server.post(
+    '/:agentId/avatar',
+    { preHandler: [authenticate] },
+    async (
+      request: FastifyRequest<{ Params: { agentId: string } }>,
+      reply: FastifyReply
+    ) => {
+      // Verify ownership
+      const existingAgent = await prisma.agent.findFirst({
+        where: {
+          id: request.params.agentId,
+          userId: request.user.id,
+        },
+      });
+
+      if (!existingAgent) {
+        return reply.status(404).send({ error: 'Agent not found' });
+      }
+
+      const body = request.body as { avatarUrl?: string };
+
+      if (!body.avatarUrl) {
+        return reply.status(400).send({ error: 'avatarUrl is required' });
+      }
+
+      const agent = await prisma.agent.update({
+        where: { id: request.params.agentId },
+        data: { avatarUrl: body.avatarUrl },
+      });
 
       return { agent };
     }

@@ -97,13 +97,24 @@ export default function AgentsPage() {
                 {/* Header */}
                 <div className="flex items-start gap-3 mb-4">
                   <div
-                    className="w-10 h-10 flex items-center justify-center text-sm font-bold"
-                    style={{ backgroundColor: agent.avatarColor }}
+                    className="w-10 h-10 flex items-center justify-center text-sm font-bold overflow-hidden"
+                    style={{ backgroundColor: agent.avatarUrl ? 'transparent' : agent.avatarColor }}
                   >
-                    {agent.name.charAt(0).toUpperCase()}
+                    {agent.avatarUrl ? (
+                      <img src={agent.avatarUrl} alt={agent.name} className="w-full h-full object-cover" />
+                    ) : (
+                      agent.name.charAt(0).toUpperCase()
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-medium truncate">{agent.name}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-medium truncate">{agent.name}</h3>
+                      {agent.isPublic && (
+                        <span className="text-xs px-1 py-0.5 bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                          public
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-white/50">{model.name}</p>
                   </div>
                 </div>

@@ -1,20 +1,32 @@
-import { FastifyInstance, FastifyRequest, FastifyReply, RouteGenericInterface } from 'fastify';
+import { FastifyInstance, RouteGenericInterface } from 'fastify';
 import Redis from 'ioredis';
 import { prisma } from '../lib/prisma.js';
-import { authenticate } from '../middleware/auth.js';
 
 interface StreamParams extends RouteGenericInterface {
   Params: { conversationId: string };
+  Querystring: { token?: string };
 }
 
 export async function streamRoutes(server: FastifyInstance) {
   // SSE streaming endpoint for conversation updates
+  // Note: EventSource doesn't support custom headers, so we accept token via query param
   server.get<StreamParams>(
     '/:conversationId/stream',
-    { preHandler: [authenticate] },
     async (request, reply) => {
       const { conversationId } = request.params;
-      const userId = request.user.id;
+      const { token } = request.query;
+
+      // Authenticate via query param token (since EventSource can't send headers)
+      let userId: string;
+      try {
+        if (!token) {
+          return reply.status(401).send({ error: 'Token required' });
+        }
+        const decoded = server.jwt.verify<{ id: string }>(token);
+        userId = decoded.id;
+      } catch {
+        return reply.status(401).send({ error: 'Invalid token' });
+      }
 
       // Verify user owns this conversation or it's public
       const conversation = await prisma.conversation.findFirst({
@@ -28,6 +40,33 @@ export async function streamRoutes(server: FastifyInstance) {
         return reply.status(404).send({ error: 'Conversation not found' });
       }
 
+      // Check if Redis is available
+      const redisUrl = process.env.REDIS_URL;
+      if (!redisUrl) {
+        // Fall back to polling mode - just send connected event
+        reply.raw.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        });
+
+        reply.raw.write(
+          `data: ${JSON.stringify({ type: 'connected', conversationId, mode: 'polling' })}\n\n`
+        );
+
+        // Heartbeat to keep connection alive
+        const heartbeat = setInterval(() => {
+          reply.raw.write(': heartbeat\n\n');
+        }, 30000);
+
+        request.raw.on('close', () => {
+          clearInterval(heartbeat);
+        });
+
+        return;
+      }
+
       // Set up SSE headers
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -38,7 +77,7 @@ export async function streamRoutes(server: FastifyInstance) {
 
       // Subscribe to Redis pub/sub for this conversation
       // @ts-expect-error - ioredis types are complex with ESM
-      const subscriber = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+      const subscriber = new Redis(redisUrl);
       const conversationChannel = `conversation:${conversationId}`;
       const userCreditsChannel = `user:${userId}:credits`;
 
