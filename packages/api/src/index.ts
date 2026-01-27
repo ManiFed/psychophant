@@ -7,9 +7,63 @@ import { conversationRoutes } from './routes/conversations.js';
 import { creditRoutes } from './routes/credits.js';
 import { streamRoutes } from './routes/stream.js';
 
+// =============================================================================
+// STARTUP ENVIRONMENT VALIDATION
+// =============================================================================
+
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Log environment summary (no secrets)
+console.log('=====================================');
+console.log('API Server Starting...');
+console.log('=====================================');
+console.log(`NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
+console.log(`DATABASE_URL present: ${!!process.env.DATABASE_URL}`);
+console.log(`REDIS_URL present: ${!!process.env.REDIS_URL}`);
+console.log(`JWT_SECRET present: ${!!process.env.JWT_SECRET}`);
+console.log(`WEB_URL: ${process.env.WEB_URL || '(not set)'}`);
+console.log(`APP_URL: ${process.env.APP_URL || '(not set)'}`);
+console.log('=====================================');
+
+// Validate required environment variables in production
+const validateEnv = (): void => {
+  const errors: string[] = [];
+
+  if (!process.env.DATABASE_URL) {
+    errors.push('DATABASE_URL is required');
+  }
+
+  if (isProduction) {
+    if (!process.env.JWT_SECRET) {
+      errors.push('JWT_SECRET is required in production');
+    }
+
+    if (process.env.JWT_SECRET === 'development-secret-change-in-production') {
+      errors.push('JWT_SECRET must be changed from the default in production');
+    }
+  }
+
+  if (errors.length > 0) {
+    console.error('=====================================');
+    console.error('FATAL: Environment validation failed!');
+    errors.forEach((err) => console.error(`  - ${err}`));
+    console.error('=====================================');
+
+    if (isProduction) {
+      process.exit(1);
+    }
+  }
+};
+
+validateEnv();
+
+// =============================================================================
+// SERVER SETUP
+// =============================================================================
+
 const server = Fastify({
   logger: {
-    level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
+    level: isProduction ? 'info' : 'debug',
   },
 });
 
@@ -31,7 +85,7 @@ const getAllowedOrigins = (): string[] => {
   origins.push('https://psychophantweb-production.up.railway.app');
 
   // Development origins
-  if (process.env.NODE_ENV !== 'production') {
+  if (!isProduction) {
     origins.push('http://localhost:3000');
     origins.push('http://127.0.0.1:3000');
   }
@@ -47,8 +101,11 @@ await server.register(cors, {
   allowedHeaders: ['Content-Type', 'Authorization'],
 });
 
+// JWT configuration - fail in production if secret not set
+const jwtSecret = process.env.JWT_SECRET || 'development-secret-change-in-production';
+
 await server.register(jwt, {
-  secret: process.env.JWT_SECRET || 'development-secret-change-in-production',
+  secret: jwtSecret,
   sign: {
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
@@ -64,9 +121,17 @@ declare module '@fastify/jwt' {
   }
 }
 
-// Health check
+// Health check with env status
 server.get('/health', async () => {
-  return { status: 'ok', timestamp: new Date().toISOString() };
+  return {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    env: {
+      nodeEnv: process.env.NODE_ENV || 'undefined',
+      databaseConfigured: !!process.env.DATABASE_URL,
+      redisConfigured: !!process.env.REDIS_URL,
+    },
+  };
 });
 
 // Register routes
@@ -82,7 +147,10 @@ const host = process.env.HOST || '0.0.0.0';
 
 try {
   await server.listen({ port, host });
+  console.log('=====================================');
   console.log(`Server running at http://${host}:${port}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log('=====================================');
 } catch (err) {
   server.log.error(err);
   process.exit(1);
