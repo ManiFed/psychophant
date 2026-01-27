@@ -13,7 +13,15 @@ const createAgentSchema = z.object({
     .string()
     .regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid color format')
     .optional(),
-  avatarUrl: z.string().url().optional().nullable(),
+  // Accept URLs, data URLs, or null/undefined
+  avatarUrl: z
+    .string()
+    .refine(
+      (val) => !val || val.startsWith('http://') || val.startsWith('https://') || val.startsWith('data:'),
+      'Must be a valid URL or data URL'
+    )
+    .optional()
+    .nullable(),
   isPublic: z.boolean().optional(),
 });
 
