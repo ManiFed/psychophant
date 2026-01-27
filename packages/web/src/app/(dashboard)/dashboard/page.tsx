@@ -1,8 +1,22 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
+import { useAgentsStore } from '@/stores/agents';
+import { useCreditsStore, formatCents } from '@/stores/credits';
 
 export default function DashboardPage() {
+  const { agents, fetchAgents, isLoading: agentsLoading } = useAgentsStore();
+  const { totalCents, freeCents, purchasedCents, fetchBalance, isLoading: creditsLoading } = useCreditsStore();
+
+  useEffect(() => {
+    fetchAgents();
+    fetchBalance();
+  }, [fetchAgents, fetchBalance]);
+
+  // Get 3 most recent agents for display
+  const recentAgents = agents.slice(0, 3);
+
   return (
     <div className="space-y-10">
       {/* Welcome Section */}
@@ -40,7 +54,58 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* Recent Activity */}
+      {/* Your Agents */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-medium">your agents</h2>
+          {agents.length > 0 && (
+            <Link href="/agents" className="text-xs text-orange-500 hover:text-orange-400 transition-colors">
+              view all →
+            </Link>
+          )}
+        </div>
+        <div className="border border-white/10">
+          {agentsLoading ? (
+            <div className="p-8 text-center">
+              <p className="text-xs text-white/50">loading agents...</p>
+            </div>
+          ) : recentAgents.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="text-xs text-white/50">no agents yet.</p>
+              <p className="mt-2 text-xs text-white/30">
+                <Link href="/agents/new" className="text-orange-500 hover:text-orange-400">
+                  create your first agent
+                </Link>
+                {' '}to get started!
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-white/10">
+              {recentAgents.map((agent) => (
+                <Link
+                  key={agent.id}
+                  href={`/agents/${agent.id}/edit`}
+                  className="flex items-center gap-4 p-4 hover:bg-white/5 transition-colors"
+                >
+                  <div
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold"
+                    style={{ backgroundColor: agent.avatarColor || '#f97316' }}
+                  >
+                    {agent.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{agent.name}</p>
+                    <p className="text-xs text-white/50 truncate">{agent.role}</p>
+                  </div>
+                  <div className="text-xs text-white/30">{agent.model}</div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Recent Conversations */}
       <div>
         <h2 className="text-sm font-medium mb-4">recent conversations</h2>
         <div className="border border-white/10">
@@ -57,19 +122,25 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-4">
         <div className="border border-white/10 bg-white/5 p-4">
           <p className="text-xs text-white/50">total agents</p>
-          <p className="mt-1 text-xl font-bold">0</p>
+          <p className="mt-1 text-xl font-bold">
+            {agentsLoading ? '—' : agents.length}
+          </p>
         </div>
         <div className="border border-white/10 bg-white/5 p-4">
           <p className="text-xs text-white/50">conversations</p>
           <p className="mt-1 text-xl font-bold">0</p>
         </div>
         <div className="border border-white/10 bg-white/5 p-4">
-          <p className="text-xs text-white/50">total spent</p>
-          <p className="mt-1 text-xl font-bold">$0.00</p>
+          <p className="text-xs text-white/50">free credits</p>
+          <p className="mt-1 text-xl font-bold">
+            {creditsLoading ? '—' : formatCents(freeCents)}
+          </p>
         </div>
         <div className="border border-white/10 bg-white/5 p-4">
-          <p className="text-xs text-white/50">credit balance</p>
-          <p className="mt-1 text-xl font-bold text-orange-500">$0.10</p>
+          <p className="text-xs text-white/50">total balance</p>
+          <p className="mt-1 text-xl font-bold text-orange-500">
+            {creditsLoading ? '—' : formatCents(totalCents)}
+          </p>
         </div>
       </div>
     </div>
