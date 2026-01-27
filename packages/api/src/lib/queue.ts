@@ -2,22 +2,25 @@ import { Queue } from 'bullmq';
 import { redis } from './redis.js';
 
 // Main orchestration queue for turn management
-export const orchestrationQueue = new Queue('orchestration', {
-  connection: redis,
-  defaultJobOptions: {
-    attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 1000,
-    },
-    removeOnComplete: {
-      count: 100, // Keep last 100 completed jobs
-    },
-    removeOnFail: {
-      count: 50, // Keep last 50 failed jobs for debugging
-    },
-  },
-});
+// Will be null if Redis is not available
+export const orchestrationQueue: Queue | null = redis
+  ? new Queue('orchestration', {
+      connection: redis,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+        removeOnComplete: {
+          count: 100, // Keep last 100 completed jobs
+        },
+        removeOnFail: {
+          count: 50, // Keep last 50 failed jobs for debugging
+        },
+      },
+    })
+  : null;
 
 // Job types
 export type OrchestrationJobType =
@@ -63,8 +66,12 @@ export type OrchestrationJob =
   | ResumeConversationJob;
 
 // Helper functions to add jobs
+// These throw an error if Redis is not available
 export const queueHelpers = {
   async startConversation(conversationId: string, initialPrompt: string) {
+    if (!orchestrationQueue) {
+      throw new Error('Redis is required for conversation orchestration. Please configure REDIS_URL.');
+    }
     return orchestrationQueue.add('start_conversation', {
       type: 'start_conversation',
       conversationId,
@@ -73,6 +80,9 @@ export const queueHelpers = {
   },
 
   async nextTurn(conversationId: string) {
+    if (!orchestrationQueue) {
+      throw new Error('Redis is required for conversation orchestration. Please configure REDIS_URL.');
+    }
     return orchestrationQueue.add('next_turn', {
       type: 'next_turn',
       conversationId,
@@ -80,6 +90,9 @@ export const queueHelpers = {
   },
 
   async processInterjection(conversationId: string, content: string) {
+    if (!orchestrationQueue) {
+      throw new Error('Redis is required for conversation orchestration. Please configure REDIS_URL.');
+    }
     return orchestrationQueue.add('process_interjection', {
       type: 'process_interjection',
       conversationId,
@@ -88,6 +101,9 @@ export const queueHelpers = {
   },
 
   async forceAgreementPhase(conversationId: string, phase: number) {
+    if (!orchestrationQueue) {
+      throw new Error('Redis is required for conversation orchestration. Please configure REDIS_URL.');
+    }
     return orchestrationQueue.add('force_agreement_phase', {
       type: 'force_agreement_phase',
       conversationId,
@@ -96,6 +112,9 @@ export const queueHelpers = {
   },
 
   async resumeConversation(conversationId: string) {
+    if (!orchestrationQueue) {
+      throw new Error('Redis is required for conversation orchestration. Please configure REDIS_URL.');
+    }
     return orchestrationQueue.add('resume_conversation', {
       type: 'resume_conversation',
       conversationId,

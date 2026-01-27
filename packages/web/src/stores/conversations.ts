@@ -18,6 +18,7 @@ interface ConversationsState {
   pauseConversation: (id: string) => Promise<void>;
   resumeConversation: (id: string) => Promise<void>;
   addInterjection: (id: string, content: string) => Promise<void>;
+  startForceAgreement: (id: string) => Promise<void>;
   addMessage: (message: Message) => void;
   updateMessage: (messageId: string, updates: Partial<Message>) => void;
   setCurrentConversation: (conversation: Conversation | null) => void;
@@ -168,6 +169,26 @@ export const useConversationsStore = create<ConversationsState>()((set, get) => 
       }));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to add interjection';
+      set({ error: message });
+      throw err;
+    }
+  },
+
+  startForceAgreement: async (id: string) => {
+    const token = useAuthStore.getState().token;
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      await conversationsApi.forceAgreement(token, id);
+      set((state) => ({
+        currentConversation: state.currentConversation
+          ? { ...state.currentConversation, status: 'force_agreement' as const }
+          : null,
+      }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to start force agreement';
       set({ error: message });
       throw err;
     }

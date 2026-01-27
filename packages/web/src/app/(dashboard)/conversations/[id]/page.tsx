@@ -23,6 +23,7 @@ export default function ConversationPage() {
     pauseConversation,
     resumeConversation,
     addInterjection,
+    startForceAgreement,
     isLoading,
     error,
   } = useConversationsStore();
@@ -282,16 +283,24 @@ export default function ConversationPage() {
                   </button>
                 )}
               </div>
-              {currentConversation.mode === 'collaborate' && !isCompleted && (
+              {currentConversation.mode === 'collaborate' && !isCompleted && currentConversation.status !== 'force_agreement' && (
                 <button
                   className="px-4 py-2 text-sm border border-purple-500/50 text-purple-400 hover:bg-purple-500/10 transition-colors"
-                  onClick={() => {
-                    // TODO: Implement force agreement
-                    alert('Force Agreement coming soon!');
+                  onClick={async () => {
+                    try {
+                      await startForceAgreement(conversationId);
+                    } catch (err) {
+                      console.error('Failed to start force agreement:', err);
+                    }
                   }}
                 >
                   force agreement
                 </button>
+              )}
+              {currentConversation.status === 'force_agreement' && (
+                <span className="px-4 py-2 text-sm text-purple-400">
+                  force agreement in progress...
+                </span>
               )}
             </div>
           </div>
