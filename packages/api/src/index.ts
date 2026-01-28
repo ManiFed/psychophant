@@ -67,6 +67,23 @@ const server = Fastify({
   },
 });
 
+// Add raw body parser for Stripe webhooks
+// This allows the webhook endpoint to access the raw body for signature verification
+server.addContentTypeParser(
+  'application/json',
+  { parseAs: 'string' },
+  function (req, body, done) {
+    try {
+      // Store raw body for webhook verification
+      (req as any).rawBody = body;
+      const json = JSON.parse(body as string);
+      done(null, json);
+    } catch (err) {
+      done(err as Error);
+    }
+  }
+);
+
 // CORS configuration
 const getAllowedOrigins = (): string[] => {
   const origins: string[] = [];

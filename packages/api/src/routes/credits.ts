@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply, RouteGenericInterface } from 'fastify';
 import { z } from 'zod';
+import Stripe from 'stripe';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { redisHelpers } from '../lib/redis.js';
@@ -8,6 +9,11 @@ import {
   CREDIT_PACKAGES,
   CreditPackageId,
 } from '../shared/index.js';
+
+// Initialize Stripe client (only if key is available)
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
 interface TransactionsQuery extends RouteGenericInterface {
   Querystring: { limit?: string; offset?: string };
@@ -123,12 +129,17 @@ export async function creditRoutes(server: FastifyInstance) {
   );
 
   // Purchase credits (returns Stripe client secret)
-  // Note: Stripe integration would need additional setup
   server.post(
     '/purchase',
     { preHandler: [authenticate] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
+        if (!stripe) {
+          return reply.status(503).send({
+            error: 'Payment processing is not configured. Please set STRIPE_SECRET_KEY.',
+          });
+        }
+
         const body = purchaseSchema.parse(request.body);
         const pack = CREDIT_PACKAGES[body.packageId];
 
@@ -136,19 +147,57 @@ export async function creditRoutes(server: FastifyInstance) {
           return reply.status(400).send({ error: 'Invalid package' });
         }
 
-        // TODO: Integrate with Stripe
-        // For now, return a placeholder response
-        // In production, this would create a Stripe PaymentIntent
-
-        return reply.status(501).send({
-          error: 'Stripe integration not yet implemented',
-          package: pack,
+        const user = await prisma.user.findUnique({
+          where: { id: request.user.id },
+          include: { stripeCustomer: true },
         });
 
-        // Production implementation would be:
-        // 1. Get or create Stripe customer
-        // 2. Create PaymentIntent
-        // 3. Return client secret
+        if (!user) {
+          return reply.status(404).send({ error: 'User not found' });
+        }
+
+        // Get or create Stripe customer
+        let stripeCustomerId = user.stripeCustomer?.stripeCustomerId;
+
+        if (!stripeCustomerId) {
+          const customer = await stripe.customers.create({
+            email: user.email,
+            metadata: {
+              userId: user.id,
+            },
+          });
+
+          stripeCustomerId = customer.id;
+
+          await prisma.stripeCustomer.create({
+            data: {
+              userId: user.id,
+              stripeCustomerId,
+            },
+          });
+        }
+
+        // Create PaymentIntent
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: pack.priceCents,
+          currency: 'usd',
+          customer: stripeCustomerId,
+          metadata: {
+            userId: user.id,
+            packageId: body.packageId,
+            creditsCents: pack.cents.toString(),
+          },
+          automatic_payment_methods: {
+            enabled: true,
+          },
+        });
+
+        return {
+          clientSecret: paymentIntent.client_secret,
+          packageId: body.packageId,
+          priceCents: pack.priceCents,
+          creditsCents: pack.cents,
+        };
       } catch (err) {
         if (err instanceof z.ZodError) {
           return reply.status(400).send({
@@ -156,24 +205,132 @@ export async function creditRoutes(server: FastifyInstance) {
             details: err.errors,
           });
         }
-        throw err;
+        console.error('Stripe error:', err);
+        return reply.status(500).send({
+          error: 'Payment processing failed',
+        });
       }
     }
   );
 
   // Stripe webhook (for payment confirmation)
-  server.post('/webhook', async (request: FastifyRequest, reply: FastifyReply) => {
-    // TODO: Implement Stripe webhook handling
-    // This would:
-    // 1. Verify webhook signature
-    // 2. Handle payment_intent.succeeded event
-    // 3. Add credits to user's balance
-    // 4. Create credit transaction record
+  // IMPORTANT: This endpoint must receive raw body for signature verification
+  server.post(
+    '/webhook',
+    {
+      config: {
+        rawBody: true,
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!stripe) {
+        return reply.status(503).send({ error: 'Stripe not configured' });
+      }
 
-    return reply.status(501).send({
-      error: 'Stripe webhook not yet implemented',
-    });
-  });
+      const sig = request.headers['stripe-signature'] as string;
+
+      if (!sig) {
+        return reply.status(400).send({ error: 'Missing stripe-signature header' });
+      }
+
+      if (!STRIPE_WEBHOOK_SECRET) {
+        console.error('STRIPE_WEBHOOK_SECRET not configured');
+        return reply.status(503).send({ error: 'Webhook secret not configured' });
+      }
+
+      let event: Stripe.Event;
+
+      try {
+        // Get raw body for signature verification
+        const rawBody = (request as any).rawBody || request.body;
+        const bodyString = typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody);
+
+        event = stripe.webhooks.constructEvent(
+          bodyString,
+          sig,
+          STRIPE_WEBHOOK_SECRET
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        console.error('Webhook signature verification failed:', message);
+        return reply.status(400).send({ error: `Webhook Error: ${message}` });
+      }
+
+      // Handle the event
+      switch (event.type) {
+        case 'payment_intent.succeeded': {
+          const paymentIntent = event.data.object as Stripe.PaymentIntent;
+          const { userId, packageId, creditsCents } = paymentIntent.metadata;
+
+          if (!userId || !creditsCents) {
+            console.error('Missing metadata in PaymentIntent:', paymentIntent.id);
+            break;
+          }
+
+          const creditsToAdd = parseInt(creditsCents, 10);
+
+          // Add credits to user's balance
+          const result = await prisma.$transaction(async (tx: TransactionClient) => {
+            // Get or create balance
+            let balance = await tx.creditBalance.findUnique({
+              where: { userId },
+            });
+
+            if (!balance) {
+              balance = await tx.creditBalance.create({
+                data: {
+                  userId,
+                  freeCreditsCents: DAILY_FREE_CREDITS_CENTS,
+                  purchasedCreditsCents: 0,
+                },
+              });
+            }
+
+            // Add purchased credits
+            const updated = await tx.creditBalance.update({
+              where: { userId },
+              data: {
+                purchasedCreditsCents: { increment: creditsToAdd },
+              },
+            });
+
+            // Record transaction
+            await tx.creditTransaction.create({
+              data: {
+                userId,
+                amountCents: creditsToAdd,
+                transactionType: 'purchase',
+                sourceType: 'stripe',
+                referenceId: paymentIntent.id,
+                description: `Credit purchase: ${packageId}`,
+                balanceAfterCents:
+                  updated.freeCreditsCents + updated.purchasedCreditsCents,
+              },
+            });
+
+            return updated;
+          });
+
+          // Invalidate cache
+          await redisHelpers.invalidateCreditCache(userId);
+
+          console.log(`Added ${creditsToAdd} credits to user ${userId}`);
+          break;
+        }
+
+        case 'payment_intent.payment_failed': {
+          const paymentIntent = event.data.object as Stripe.PaymentIntent;
+          console.log(`Payment failed for PaymentIntent ${paymentIntent.id}`);
+          break;
+        }
+
+        default:
+          console.log(`Unhandled event type: ${event.type}`);
+      }
+
+      return { received: true };
+    }
+  );
 
   // Get available packages
   server.get('/packages', async () => {
