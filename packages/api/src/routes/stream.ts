@@ -7,6 +7,38 @@ interface StreamParams extends RouteGenericInterface {
   Querystring: { token?: string };
 }
 
+// Get allowed origins for CORS
+function getAllowedOrigins(): string[] {
+  const origins: string[] = [];
+
+  if (process.env.WEB_URL) {
+    origins.push(process.env.WEB_URL);
+  }
+  if (process.env.APP_URL) {
+    origins.push(process.env.APP_URL);
+  }
+
+  // Always allow the Railway production web domain
+  origins.push('https://psychophantweb-production.up.railway.app');
+
+  // Development origins
+  if (process.env.NODE_ENV !== 'production') {
+    origins.push('http://localhost:3000');
+    origins.push('http://127.0.0.1:3000');
+  }
+
+  return origins;
+}
+
+function getCorsOrigin(requestOrigin: string | undefined): string | null {
+  const allowed = getAllowedOrigins();
+  if (requestOrigin && allowed.includes(requestOrigin)) {
+    return requestOrigin;
+  }
+  // Return first allowed origin as fallback for SSE (no Origin header in EventSource)
+  return allowed[0] || null;
+}
+
 export async function streamRoutes(server: FastifyInstance) {
   // SSE streaming endpoint for conversation updates
   // Note: EventSource doesn't support custom headers, so we accept token via query param
@@ -40,6 +72,10 @@ export async function streamRoutes(server: FastifyInstance) {
         return reply.status(404).send({ error: 'Conversation not found' });
       }
 
+      // Get CORS origin
+      const origin = request.headers.origin;
+      const corsOrigin = getCorsOrigin(origin);
+
       // Check if Redis is available
       const redisUrl = process.env.REDIS_URL;
       if (!redisUrl) {
@@ -49,6 +85,8 @@ export async function streamRoutes(server: FastifyInstance) {
           'Cache-Control': 'no-cache',
           Connection: 'keep-alive',
           'X-Accel-Buffering': 'no',
+          'Access-Control-Allow-Origin': corsOrigin || '*',
+          'Access-Control-Allow-Credentials': 'true',
         });
 
         reply.raw.write(
@@ -67,12 +105,14 @@ export async function streamRoutes(server: FastifyInstance) {
         return;
       }
 
-      // Set up SSE headers
+      // Set up SSE headers with CORS
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no', // Disable nginx buffering
+        'Access-Control-Allow-Origin': corsOrigin || '*',
+        'Access-Control-Allow-Credentials': 'true',
       });
 
       // Subscribe to Redis pub/sub for this conversation
