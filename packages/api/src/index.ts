@@ -6,7 +6,7 @@ import { agentRoutes } from './routes/agents.js';
 import { conversationRoutes } from './routes/conversations.js';
 import { creditRoutes } from './routes/credits.js';
 import { streamRoutes } from './routes/stream.js';
-import { getQueueStats } from './lib/queue.js';
+import { getQueueStats, getFailedJobs } from './lib/queue.js';
 import { redis, isRedisAvailable } from './lib/redis.js';
 
 // =============================================================================
@@ -157,6 +157,7 @@ server.get('/health', async () => {
 server.get('/debug/queue', async () => {
   const queueStats = await getQueueStats();
   const redisStatus = isRedisAvailable();
+  const failedJobs = await getFailedJobs();
 
   // Test Redis pub/sub
   let pubsubTest = 'not tested';
@@ -177,6 +178,7 @@ server.get('/debug/queue', async () => {
       pingTest: pubsubTest,
     },
     queue: queueStats,
+    failedJobs,
     hint: queueStats.available && (queueStats as any).counts?.waiting > 0
       ? 'Jobs are waiting - orchestration worker may not be running!'
       : 'Queue looks healthy',

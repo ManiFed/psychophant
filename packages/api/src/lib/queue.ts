@@ -94,6 +94,28 @@ export async function getQueueStats() {
   }
 }
 
+// Get failed jobs with their error messages
+export async function getFailedJobs() {
+  if (!orchestrationQueue) {
+    return [];
+  }
+
+  try {
+    const failedJobs = await orchestrationQueue.getFailed(0, 10);
+    return failedJobs.map(job => ({
+      id: job.id,
+      name: job.name,
+      data: job.data,
+      failedReason: job.failedReason,
+      stacktrace: job.stacktrace?.slice(0, 500),
+      attemptsMade: job.attemptsMade,
+      timestamp: job.timestamp,
+    }));
+  } catch (error) {
+    return [{ error: String(error) }];
+  }
+}
+
 // Helper functions to add jobs
 // These throw an error if Redis is not available
 export const queueHelpers = {
