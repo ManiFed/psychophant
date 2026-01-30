@@ -15,38 +15,64 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-// Helper to identify Prisma errors
-const isPrismaError = (err: unknown): err is Error & { code?: string } => {
-  return err instanceof Error && 'code' in err;
-};
+// Classify errors with specific codes so we can diagnose production issues
+const classifyError = (err: unknown): { status: number; error: string; code: string } => {
+  const errMsg = err instanceof Error ? err.message : String(err);
+  const errName = err instanceof Error ? err.constructor.name : 'Unknown';
+  const errCode = (err as Record<string, unknown>)?.code;
 
-// Helper to handle database errors gracefully
-const handleDatabaseError = (err: unknown, reply: FastifyReply) => {
-  console.error('Database error:', err);
-
-  if (isPrismaError(err)) {
-    // Connection errors
-    if (err.message.includes('DATABASE_URL') || err.message.includes('connect')) {
-      return reply.status(503).send({
-        error: 'Database temporarily unavailable',
-        code: 'DB_CONNECTION_ERROR',
-      });
-    }
-
-    // Unique constraint violation
-    if (err.code === 'P2002') {
-      return reply.status(400).send({
-        error: 'Email already registered',
-        code: 'DUPLICATE_EMAIL',
-      });
-    }
+  console.error(`[Auth] Error name=${errName} code=${String(errCode)} message=${errMsg}`);
+  if (err instanceof Error && err.stack) {
+    console.error(`[Auth] Stack: ${err.stack}`);
   }
 
-  // Generic server error
-  return reply.status(500).send({
+  // Prisma connection / initialization errors
+  if (
+    errName === 'PrismaClientInitializationError' ||
+    errName === 'PrismaClientRustPanicError' ||
+    errMsg.includes("Can't reach database") ||
+    errMsg.includes('database server') ||
+    errMsg.includes('connect') ||
+    errMsg.includes('CONNECTION') ||
+    errMsg.includes('DATABASE_URL') ||
+    errMsg.includes('timed out') ||
+    errMsg.includes('ECONNREFUSED') ||
+    errMsg.includes('ENOTFOUND') ||
+    errMsg.includes('prepared statement')
+  ) {
+    return {
+      status: 503,
+      error: 'Database temporarily unavailable. Please try again shortly.',
+      code: 'DB_CONNECTION_ERROR',
+    };
+  }
+
+  // Prisma known request errors
+  if (errCode === 'P2002') {
+    return { status: 400, error: 'Email already registered', code: 'DUPLICATE_EMAIL' };
+  }
+  if (errCode === 'P2021' || errCode === 'P2022') {
+    return {
+      status: 503,
+      error: 'Database schema needs migration. Please contact support.',
+      code: 'DB_SCHEMA_ERROR',
+    };
+  }
+
+  // JWT errors
+  if (errMsg.includes('secretOrPrivateKey') || errMsg.includes('jwt') || errName.includes('Jwt')) {
+    return {
+      status: 500,
+      error: 'Authentication service misconfigured.',
+      code: 'JWT_CONFIG_ERROR',
+    };
+  }
+
+  return {
+    status: 500,
     error: 'An unexpected error occurred. Please try again.',
     code: 'INTERNAL_ERROR',
-  });
+  };
 };
 
 export async function authRoutes(server: FastifyInstance) {
@@ -98,8 +124,11 @@ export async function authRoutes(server: FastifyInstance) {
         });
       }
 
-      // Handle Prisma/database errors
-      return handleDatabaseError(err, reply);
+      const classified = classifyError(err);
+      return reply.status(classified.status).send({
+        error: classified.error,
+        code: classified.code,
+      });
     }
   });
 
@@ -108,24 +137,52 @@ export async function authRoutes(server: FastifyInstance) {
     try {
       const body = loginSchema.parse(request.body);
 
-      // Find user
-      const user = await prisma.user.findUnique({
-        where: { email: body.email },
-      });
+      // Step 1: Query database
+      let user;
+      try {
+        user = await prisma.user.findUnique({
+          where: { email: body.email },
+        });
+      } catch (dbErr) {
+        console.error('[Login] Database query failed:', dbErr);
+        const classified = classifyError(dbErr);
+        return reply.status(classified.status).send({
+          error: classified.error,
+          code: classified.code,
+        });
+      }
 
       if (!user) {
         return reply.status(401).send({ error: 'Invalid email or password' });
       }
 
-      // Verify password
-      const validPassword = await bcrypt.compare(body.password, user.passwordHash);
+      // Step 2: Verify password
+      let validPassword;
+      try {
+        validPassword = await bcrypt.compare(body.password, user.passwordHash);
+      } catch (bcryptErr) {
+        console.error('[Login] bcrypt.compare failed:', bcryptErr);
+        return reply.status(500).send({
+          error: 'Password verification failed. Please try again.',
+          code: 'BCRYPT_ERROR',
+        });
+      }
 
       if (!validPassword) {
         return reply.status(401).send({ error: 'Invalid email or password' });
       }
 
-      // Generate JWT
-      const token = server.jwt.sign({ id: user.id, email: user.email });
+      // Step 3: Generate JWT
+      let token;
+      try {
+        token = server.jwt.sign({ id: user.id, email: user.email });
+      } catch (jwtErr) {
+        console.error('[Login] JWT sign failed:', jwtErr);
+        return reply.status(500).send({
+          error: 'Authentication service error. Please contact support.',
+          code: 'JWT_SIGN_ERROR',
+        });
+      }
 
       return {
         user: { id: user.id, email: user.email, username: user.username },
@@ -139,8 +196,11 @@ export async function authRoutes(server: FastifyInstance) {
         });
       }
 
-      // Handle Prisma/database errors
-      return handleDatabaseError(err, reply);
+      const classified = classifyError(err);
+      return reply.status(classified.status).send({
+        error: classified.error,
+        code: classified.code,
+      });
     }
   });
 
@@ -163,7 +223,11 @@ export async function authRoutes(server: FastifyInstance) {
 
         return { user };
       } catch (err) {
-        return handleDatabaseError(err, reply);
+        const classified = classifyError(err);
+        return reply.status(classified.status).send({
+          error: classified.error,
+          code: classified.code,
+        });
       }
     }
   );
