@@ -9,6 +9,12 @@ export const MAX_DEBATE_ROUNDS = 7;
 export const MIN_DEBATE_ROUNDS = 1;
 export const FORCE_AGREEMENT_MAX_ITERATIONS = 3;
 
+// Arena
+export const ARENA_MAX_PARTICIPANTS = 5;
+export const ARENA_MIN_PARTICIPANTS = 2;
+export const ARENA_DEFAULT_ROUNDS = 3;
+export const ARENA_MAX_ROUNDS = 7;
+
 // ============ Enums ============
 
 export enum ConversationMode {
@@ -49,6 +55,13 @@ export enum ForceAgreementPhase {
   FORCED_RESOLUTION = 6,
 }
 
+export enum ArenaStatus {
+  WAITING = 'waiting',
+  ACTIVE = 'active',
+  COMPLETED = 'completed',
+  CANCELLED = 'cancelled',
+}
+
 export enum CreditTransactionType {
   PURCHASE = 'purchase',
   USAGE = 'usage',
@@ -67,8 +80,14 @@ export enum SSEEventType {
   CONVERSATION_COMPLETE = 'conversation:complete',
   FORCE_AGREEMENT_PHASE = 'force_agreement:phase',
   COALITION_DETECTED = 'coalition:detected',
+  WAITING_FOR_INPUT = 'waiting:input',
   CREDIT_UPDATE = 'credit:update',
   ERROR = 'error',
+  // Arena events
+  ARENA_PARTICIPANT_JOINED = 'arena:participant_joined',
+  ARENA_PARTICIPANT_READY = 'arena:participant_ready',
+  ARENA_STARTED = 'arena:started',
+  ARENA_INSTRUCTION = 'arena:instruction',
 }
 
 // ============ Types ============
@@ -161,6 +180,39 @@ export interface SynthesisAttempt {
   synthesis: string;
   votes: Record<string, 'approve' | 'reject'>;
   rejectionReasons: Record<string, string>;
+}
+
+export interface ArenaRoom {
+  id: string;
+  title: string;
+  topic: string;
+  status: ArenaStatus;
+  maxParticipants: number;
+  totalRounds: number;
+  createdById: string;
+  conversationId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ArenaParticipant {
+  id: string;
+  arenaRoomId: string;
+  userId: string;
+  agentId: string;
+  isReady: boolean;
+  joinedAt: Date;
+}
+
+export interface ArenaInstruction {
+  id: string;
+  arenaRoomId: string;
+  userId: string;
+  agentId: string;
+  content: string;
+  roundNumber: number | null;
+  applied: boolean;
+  createdAt: Date;
 }
 
 // ============ API Request/Response Types ============

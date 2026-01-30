@@ -425,6 +425,119 @@ interface PublicConversation {
   _count: { messages: number };
 }
 
+// Arena API
+export const arenaApi = {
+  list: (token: string) =>
+    fetchApi<{ rooms: ArenaRoomWithDetails[] }>('/api/arena', { token }),
+
+  get: (token: string, id: string) =>
+    fetchApi<{ room: ArenaRoomFull }>(`/api/arena/${id}`, { token }),
+
+  create: (token: string, data: CreateArenaData) =>
+    fetchApi<{ room: ArenaRoomWithDetails }>('/api/arena', {
+      token,
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  join: (token: string, id: string, agentId: string) =>
+    fetchApi<{ participant: ArenaParticipantWithDetails }>(`/api/arena/${id}/join`, {
+      token,
+      method: 'POST',
+      body: JSON.stringify({ agentId }),
+    }),
+
+  leave: (token: string, id: string) =>
+    fetchApi<{ success: boolean }>(`/api/arena/${id}/leave`, {
+      token,
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  ready: (token: string, id: string) =>
+    fetchApi<{ participant: ArenaParticipantWithDetails }>(`/api/arena/${id}/ready`, {
+      token,
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  start: (token: string, id: string) =>
+    fetchApi<{ conversationId: string }>(`/api/arena/${id}/start`, {
+      token,
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  instruct: (token: string, id: string, content: string) =>
+    fetchApi<{ instruction: ArenaInstructionData }>(`/api/arena/${id}/instruct`, {
+      token,
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
+
+  delete: (token: string, id: string) =>
+    fetchApi<{ success: boolean }>(`/api/arena/${id}`, {
+      token,
+      method: 'DELETE',
+    }),
+};
+
+// Arena Types
+interface CreateArenaData {
+  title: string;
+  topic: string;
+  maxParticipants?: number;
+  totalRounds?: number;
+}
+
+interface ArenaRoomBase {
+  id: string;
+  title: string;
+  topic: string;
+  status: 'waiting' | 'active' | 'completed' | 'cancelled';
+  maxParticipants: number;
+  totalRounds: number;
+  createdById: string;
+  conversationId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ArenaRoomWithDetails extends ArenaRoomBase {
+  createdBy: { id: string; email: string; username: string | null };
+  participants: ArenaParticipantWithDetails[];
+  _count: { participants: number };
+}
+
+interface ArenaRoomFull extends ArenaRoomBase {
+  createdBy: { id: string; email: string; username: string | null };
+  participants: ArenaParticipantWithDetails[];
+  conversation: (Conversation & { messages: Message[]; participants: Participant[] }) | null;
+  instructions: ArenaInstructionData[];
+}
+
+interface ArenaParticipantWithDetails {
+  id: string;
+  arenaRoomId: string;
+  userId: string;
+  agentId: string;
+  isReady: boolean;
+  joinedAt: string;
+  user: { id: string; email: string; username: string | null };
+  agent: { id: string; name: string; avatarColor: string; avatarUrl: string | null; model?: string; role?: string };
+}
+
+interface ArenaInstructionData {
+  id: string;
+  arenaRoomId: string;
+  userId: string;
+  agentId: string;
+  content: string;
+  roundNumber: number | null;
+  applied: boolean;
+  createdAt: string;
+}
+
 export { ApiError };
 export type {
   Agent,
@@ -438,4 +551,10 @@ export type {
   CreditTransaction,
   AgentProfile,
   PublicConversation,
+  ArenaRoomBase,
+  ArenaRoomWithDetails,
+  ArenaRoomFull,
+  ArenaParticipantWithDetails,
+  ArenaInstructionData,
+  CreateArenaData,
 };

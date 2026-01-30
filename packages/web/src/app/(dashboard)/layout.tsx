@@ -73,6 +73,12 @@ export default function DashboardLayout({
                 conversations
               </Link>
               <Link
+                href="/arena"
+                className="text-xs text-orange-400/80 hover:text-orange-400 transition-colors"
+              >
+                arena
+              </Link>
+              <Link
                 href="/credits"
                 className="text-xs text-white/60 hover:text-white transition-colors"
               >

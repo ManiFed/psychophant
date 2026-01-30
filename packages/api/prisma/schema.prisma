@@ -25,6 +25,9 @@ model User {
   agents              Agent[]
   conversations       Conversation[]
   agentTemplates      AgentTemplate[]
+  arenaRoomsCreated   ArenaRoom[]          @relation("ArenaRoomsCreated")
+  arenaParticipants   ArenaParticipant[]
+  arenaInstructions   ArenaInstruction[]
 
   @@map("users")
 }
@@ -85,10 +88,12 @@ model Agent {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  user          User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  templates     AgentTemplate[]
-  participants  ConversationParticipant[]
-  messages      Message[]
+  user               User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templates          AgentTemplate[]
+  participants       ConversationParticipant[]
+  messages           Message[]
+  arenaParticipants  ArenaParticipant[]
+  arenaInstructions  ArenaInstruction[]
 
   @@index([userId])
   @@index([isTemplate])
@@ -143,6 +148,7 @@ model Conversation {
   participants      ConversationParticipant[]
   messages          Message[]
   coalitionEvents   CoalitionEvent[]
+  arenaRoom         ArenaRoom?
 
   @@index([userId])
   @@index([publicSlug])
@@ -204,6 +210,65 @@ model CoalitionEvent {
   detectedAtMessage Message     @relation(fields: [detectedAtMessageId], references: [id], onDelete: Cascade)
 
   @@map("coalition_events")
+}
+
+// ============ Arena ============
+
+model ArenaRoom {
+  id               String   @id @default(uuid())
+  title            String
+  topic            String
+  status           String   @default("waiting") // 'waiting' | 'active' | 'completed' | 'cancelled'
+  maxParticipants  Int      @default(2) @map("max_participants")
+  totalRounds      Int      @default(3) @map("total_rounds")
+  createdById      String   @map("created_by_id")
+  conversationId   String?  @unique @map("conversation_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  createdBy      User          @relation("ArenaRoomsCreated", fields: [createdById], references: [id], onDelete: Cascade)
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  participants   ArenaParticipant[]
+  instructions   ArenaInstruction[]
+
+  @@index([status])
+  @@index([createdById])
+  @@map("arena_rooms")
+}
+
+model ArenaParticipant {
+  id          String   @id @default(uuid())
+  arenaRoomId String   @map("arena_room_id")
+  userId      String   @map("user_id")
+  agentId     String   @map("agent_id")
+  isReady     Boolean  @default(false) @map("is_ready")
+  joinedAt    DateTime @default(now()) @map("joined_at")
+
+  arenaRoom ArenaRoom @relation(fields: [arenaRoomId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent     Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([arenaRoomId, userId])
+  @@unique([arenaRoomId, agentId])
+  @@map("arena_participants")
+}
+
+model ArenaInstruction {
+  id          String   @id @default(uuid())
+  arenaRoomId String   @map("arena_room_id")
+  userId      String   @map("user_id")
+  agentId     String   @map("agent_id")
+  content     String
+  roundNumber Int?     @map("round_number")
+  applied     Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  arenaRoom ArenaRoom @relation(fields: [arenaRoomId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent     Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([arenaRoomId, agentId, applied])
+  @@map("arena_instructions")
 }
 
 // ============ Exports ============

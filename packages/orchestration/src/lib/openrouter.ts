@@ -38,13 +38,19 @@ interface Message {
 export function buildAgentContext(
   agent: Agent,
   messages: Message[],
-  participants: Participant[]
+  participants: Participant[],
+  arenaInstructions?: string[]
 ): OpenRouterMessage[] {
   // Build list of other participants for context
   const otherAgents = participants
     .filter((p) => p.agentId !== agent.id)
     .map((p) => `- ${p.agent.name}: ${p.agent.role}`)
     .join('\n');
+
+  // Build arena instruction block if present
+  const instructionBlock = arenaInstructions && arenaInstructions.length > 0
+    ? `\n\nIMPORTANT - Your handler has given you the following live instructions. Incorporate these into your next response:\n${arenaInstructions.map((i, idx) => `${idx + 1}. ${i}`).join('\n')}`
+    : '';
 
   // System prompt combines agent's instructions with context
   const systemPrompt = `${agent.systemPrompt || ''}
@@ -54,7 +60,7 @@ You are ${agent.name}. Your role: ${agent.role}
 Other participants in this conversation:
 ${otherAgents}
 
-Respond in character. Be concise but substantive. Stay true to your role and perspective.`;
+Respond in character. Be concise but substantive. Stay true to your role and perspective.${instructionBlock}`;
 
   // Get agent name by ID helper
   const getAgentName = (agentId: string | null): string => {
