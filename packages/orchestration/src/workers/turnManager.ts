@@ -148,8 +148,33 @@ export async function handleNextTurn(data: { conversationId: string }): Promise<
       currentAgentId: agent.id,
     });
 
+    // Check for arena instructions for this agent
+    let arenaInstructions: string[] = [];
+    const arenaRoom = await prisma.arenaRoom.findUnique({
+      where: { conversationId: conversationId },
+      select: { id: true },
+    });
+    if (arenaRoom) {
+      const pendingInstructions = await prisma.arenaInstruction.findMany({
+        where: {
+          arenaRoomId: arenaRoom.id,
+          agentId: agent.id,
+          applied: false,
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (pendingInstructions.length > 0) {
+        arenaInstructions = pendingInstructions.map((i) => i.content);
+        // Mark instructions as applied
+        await prisma.arenaInstruction.updateMany({
+          where: { id: { in: pendingInstructions.map((i) => i.id) } },
+          data: { applied: true },
+        });
+      }
+    }
+
     // Build context for this agent
-    const context = buildAgentContext(agent, conversation.messages, conversation.participants);
+    const context = buildAgentContext(agent, conversation.messages, conversation.participants, arenaInstructions);
 
     // Create message record (will be updated with content)
     const message = await prisma.message.create({

@@ -1,4 +1,4 @@
-import Fastify, { FastifyError } from 'fastify';
+import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import { authRoutes } from './routes/auth.js';
@@ -7,6 +7,7 @@ import { conversationRoutes } from './routes/conversations.js';
 import { creditRoutes } from './routes/credits.js';
 import { streamRoutes } from './routes/stream.js';
 import { profileRoutes } from './routes/profiles.js';
+import { arenaRoutes } from './routes/arena.js';
 import { getQueueStats, getFailedJobs } from './lib/queue.js';
 import { redis, isRedisAvailable } from './lib/redis.js';
 
@@ -142,7 +143,7 @@ declare module '@fastify/jwt' {
 }
 
 // Global error handler - catches unhandled errors in route handlers
-server.setErrorHandler((error: FastifyError, request, reply) => {
+server.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
   const statusCode = error.statusCode ?? 500;
 
   if (statusCode >= 500) {
@@ -212,6 +213,7 @@ await server.register(conversationRoutes, { prefix: '/api/conversations' });
 await server.register(creditRoutes, { prefix: '/api/credits' });
 await server.register(streamRoutes, { prefix: '/api/conversations' });
 await server.register(profileRoutes, { prefix: '/api/profiles' });
+await server.register(arenaRoutes, { prefix: '/api/arena' });
 
 // Start server
 const port = parseInt(process.env.PORT || '3001', 10);
