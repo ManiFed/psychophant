@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import { authRoutes } from './routes/auth.js';
@@ -142,7 +142,7 @@ declare module '@fastify/jwt' {
 }
 
 // Global error handler - catches unhandled errors in route handlers
-server.setErrorHandler((error, request, reply) => {
+server.setErrorHandler((error: FastifyError, request, reply) => {
   const statusCode = error.statusCode ?? 500;
 
   if (statusCode >= 500) {
