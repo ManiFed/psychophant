@@ -339,18 +339,26 @@ export async function conversationRoutes(server: FastifyInstance) {
             status: sessionState.status,
             pendingInterjection: body.content,
           });
-        } else if (conversation.status === 'active') {
-          // Conversation is active but not generating - trigger next turn
+        } else if (conversation.status === 'active' || conversation.status === 'paused') {
+          // Resume if paused (auto-paused after round), then trigger next turn
+          if (conversation.status === 'paused') {
+            await prisma.conversation.update({
+              where: { id: conversation.id },
+              data: { status: 'active' },
+            });
+            await redisHelpers.setSessionState(conversation.id, {
+              status: 'active',
+            });
+          }
           console.log(`[Interject] Queueing next turn for conversation ${conversation.id}`);
           try {
             const job = await queueHelpers.nextTurn(conversation.id);
             console.log(`[Interject] Job queued successfully:`, job?.id);
           } catch (queueError) {
             console.error(`[Interject] Failed to queue next turn:`, queueError);
-            // Don't fail the request, but log the error
           }
         } else {
-          console.log(`[Interject] Conversation is paused or completed, not queueing turn`);
+          console.log(`[Interject] Conversation is completed, not queueing turn`);
         }
 
         return { message };

@@ -216,7 +216,7 @@ export async function handleNextTurn(data: { conversationId: string }): Promise<
         pendingInterjection: null,
       });
     } else if (roundComplete) {
-      // Round is complete — check if debate finished, otherwise wait for user input
+      // Round is complete — check if debate finished, otherwise auto-pause for user input
       const updatedConversation = await prisma.conversation.findUnique({
         where: { id: conversationId },
         select: { status: true, mode: true, totalRounds: true, currentRound: true },
@@ -236,6 +236,14 @@ export async function handleNextTurn(data: { conversationId: string }): Promise<
           await completeConversation(fullConversation as any);
         }
       } else {
+        // Auto-pause: set DB status to paused so user must resume or interject
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { status: 'paused' },
+        });
+        await redisHelpers.setSessionState(conversationId, {
+          status: 'paused',
+        });
         // Notify client we're waiting for user input before next round
         await publishEvent(
           conversationId,

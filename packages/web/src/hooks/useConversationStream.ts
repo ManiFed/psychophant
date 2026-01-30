@@ -240,6 +240,7 @@ export function useConversationStream({
           case 'waiting:input': {
             const d = eventData as unknown as { roundNumber: number };
             setIsWaitingForInput(true);
+            store.updateConversationStatus('paused');
             callbacks.onWaitingForInput?.(d.roundNumber);
             break;
           }

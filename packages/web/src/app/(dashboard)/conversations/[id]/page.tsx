@@ -158,84 +158,86 @@ export default function ConversationPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
       {/* Header */}
-      <div className="flex-shrink-0 border-b border-white/10 pb-4 mb-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <Link
-              href="/conversations"
-              className="text-xs text-white/50 hover:text-white/70 transition-colors"
-            >
-              &larr; back to conversations
-            </Link>
-            <h1 className="text-xl font-bold mt-2">
-              {currentConversation.title || 'Untitled Conversation'}
-            </h1>
-            <div className="flex items-center gap-4 mt-1 text-xs text-white/50">
-              <span className="uppercase">{currentConversation.mode}</span>
-              {currentConversation.mode === 'debate' && currentConversation.totalRounds && (
-                <span>
-                  Round {currentConversation.currentRound}/{currentConversation.totalRounds}
-                </span>
-              )}
-              <span
-                className={
-                  isActive
-                    ? 'text-green-400'
-                    : isPaused
-                    ? 'text-yellow-400'
-                    : 'text-white/50'
-                }
-              >
-                {currentConversation.status}
-              </span>
-              {isConnected && isActive && !isWaitingForInput && (
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  streaming
-                </span>
-              )}
-              {isWaitingForInput && isActive && (
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 bg-orange-500 rounded-full" />
-                  waiting for input
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-xs text-white/50">spent</p>
-              <p className="text-sm font-medium">
+      <div className="flex-shrink-0 pb-4 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <Link
+            href="/conversations"
+            className="text-xs text-white/40 hover:text-white/70 transition-colors"
+          >
+            &larr; back
+          </Link>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 border border-white/10 bg-white/5">
+              <span className="text-[10px] text-white/40">spent</span>
+              <span className="text-xs font-medium">
                 ${(currentConversation.totalCostCents / 100).toFixed(2)}
-              </p>
+              </span>
             </div>
-            <div className="text-right">
-              <p className="text-xs text-white/50">balance</p>
-              <p className="text-sm font-medium text-orange-500">{formatCents(totalCents)}</p>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 border border-orange-500/20 bg-orange-500/5">
+              <span className="text-[10px] text-white/40">balance</span>
+              <span className="text-xs font-medium text-orange-500">{formatCents(totalCents)}</span>
             </div>
           </div>
         </div>
 
-        {/* Participants */}
-        <div className="flex items-center gap-2 mt-4">
+        <h1 className="text-lg font-bold">
+          {currentConversation.title || 'Untitled Conversation'}
+        </h1>
+
+        <div className="flex items-center gap-3 mt-2">
+          <span className="text-[10px] px-2 py-0.5 border border-white/20 uppercase tracking-wider text-white/60">
+            {currentConversation.mode}
+          </span>
+          {currentConversation.mode === 'debate' && currentConversation.totalRounds && (
+            <span className="text-xs text-white/40">
+              Round {currentConversation.currentRound}/{currentConversation.totalRounds}
+            </span>
+          )}
+          <span
+            className={`text-xs flex items-center gap-1.5 ${
+              isActive
+                ? 'text-green-400'
+                : isWaitingForInput
+                ? 'text-orange-400'
+                : isPaused
+                ? 'text-yellow-400'
+                : isCompleted
+                ? 'text-white/40'
+                : 'text-white/50'
+            }`}
+          >
+            {isConnected && isActive && !isWaitingForInput && (
+              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+            )}
+            {isWaitingForInput && (
+              <span className="w-1.5 h-1.5 bg-orange-500 rounded-full" />
+            )}
+            {isWaitingForInput ? 'your turn' : currentConversation.status}
+          </span>
+        </div>
+
+        {/* Participants bar */}
+        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.06]">
           {participants.map((participant, index) => (
-            <div key={participant.id} className="flex items-center">
+            <div key={participant.id} className="flex items-center gap-1.5">
               <div
-                className="w-6 h-6 flex items-center justify-center text-xs font-bold"
+                className="w-6 h-6 flex items-center justify-center text-[10px] font-bold rounded-full flex-shrink-0"
                 style={{ backgroundColor: participant.agent.avatarColor }}
                 title={participant.agent.name}
               >
-                {participant.agent.name.charAt(0).toUpperCase()}
+                <span className="text-black/80">{participant.agent.name.charAt(0).toUpperCase()}</span>
               </div>
-              <span className="text-xs ml-1">{participant.agent.name}</span>
-              {index < participants.length - 1 && <span className="text-white/30 mx-2">→</span>}
+              <span className="text-xs text-white/60">{participant.agent.name}</span>
+              {index < participants.length - 1 && (
+                <span className="text-white/20 mx-1 text-xs">→</span>
+              )}
             </div>
           ))}
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto pr-2">
+      <div className="flex-1 overflow-y-auto pr-2 -mx-2 px-2">
         <MessageList
           messages={messages}
           participants={participants}
@@ -246,42 +248,52 @@ export default function ConversationPage() {
 
       {/* Status bar */}
       {currentAgentName && isActive && !isWaitingForInput && (
-        <div className="flex-shrink-0 py-2 text-xs text-white/50 border-t border-white/10 mt-2">
-          <span className="animate-pulse">{currentAgentName} is typing...</span>
+        <div className="flex-shrink-0 py-2.5 text-xs text-white/50 border-t border-white/[0.06] mt-2">
+          <span className="animate-pulse flex items-center gap-2">
+            <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+            {currentAgentName} is typing...
+          </span>
         </div>
       )}
-      {isWaitingForInput && isActive && (
-        <div className="flex-shrink-0 py-2 text-xs text-orange-400 border-t border-orange-500/30 mt-2">
-          round complete — send a message to continue the conversation
+      {isWaitingForInput && (
+        <div className="flex-shrink-0 py-2.5 text-xs border-t border-orange-500/20 mt-2 bg-orange-500/5 -mx-6 px-6">
+          <span className="text-orange-400 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 bg-orange-500 rounded-full" />
+            round complete — send a message or click resume to continue
+          </span>
         </div>
       )}
 
       {/* Controls */}
-      <div className="flex-shrink-0 border-t border-white/10 pt-4 mt-2">
+      <div className="flex-shrink-0 pt-4 mt-2 border-t border-white/[0.06]">
         {isCompleted ? (
-          <div className="text-center py-4">
+          <div className="text-center py-6 border border-white/[0.06] bg-white/[0.02]">
             <p className="text-sm text-white/50">conversation completed</p>
             <p className="text-xs text-white/30 mt-1">
               Total cost: ${(currentConversation.totalCostCents / 100).toFixed(2)}
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* Interjection Form */}
             <form onSubmit={handleInterject} className="flex gap-2">
               <input
                 type="text"
                 value={interjectionText}
                 onChange={(e) => setInterjectionText(e.target.value)}
-                placeholder="Add your input to the conversation..."
+                placeholder={isWaitingForInput ? "Type your response to continue..." : "Add your input to the conversation..."}
                 maxLength={5000}
                 disabled={isCompleted}
-                className="flex-1 bg-white/5 border border-white/10 px-4 py-2 text-sm placeholder:text-white/30 focus:outline-none focus:border-orange-500/50 transition-colors disabled:opacity-50"
+                className={`flex-1 bg-white/5 border px-4 py-2.5 text-sm placeholder:text-white/30 focus:outline-none transition-colors disabled:opacity-50 ${
+                  isWaitingForInput
+                    ? 'border-orange-500/30 focus:border-orange-500/50'
+                    : 'border-white/10 focus:border-orange-500/50'
+                }`}
               />
               <button
                 type="submit"
                 disabled={!interjectionText.trim() || isCompleted}
-                className="bg-white/10 text-white px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="bg-orange-500 text-black px-5 py-2.5 text-sm font-medium hover:bg-orange-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 send
               </button>
@@ -290,10 +302,10 @@ export default function ConversationPage() {
             {/* Control Buttons */}
             <div className="flex items-center justify-between">
               <div className="flex gap-2">
-                {isActive && (
+                {isActive && !isWaitingForInput && (
                   <button
                     onClick={handlePause}
-                    className="px-4 py-2 text-sm border border-white/10 hover:border-white/30 transition-colors"
+                    className="px-3 py-1.5 text-xs border border-white/10 text-white/50 hover:border-white/30 hover:text-white/70 transition-colors"
                   >
                     pause
                   </button>
@@ -301,15 +313,15 @@ export default function ConversationPage() {
                 {isPaused && (
                   <button
                     onClick={handleResume}
-                    className="px-4 py-2 text-sm bg-orange-500 text-black hover:bg-orange-400 transition-colors"
+                    className="px-4 py-1.5 text-xs font-medium bg-orange-500 text-black hover:bg-orange-400 transition-colors"
                   >
-                    resume
+                    ▶ resume
                   </button>
                 )}
               </div>
               {currentConversation.mode === 'collaborate' && !isCompleted && currentConversation.status !== 'force_agreement' && (
                 <button
-                  className="px-4 py-2 text-sm border border-purple-500/50 text-purple-400 hover:bg-purple-500/10 transition-colors"
+                  className="px-3 py-1.5 text-xs border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 transition-colors"
                   onClick={async () => {
                     try {
                       await startForceAgreement(conversationId);
@@ -322,7 +334,7 @@ export default function ConversationPage() {
                 </button>
               )}
               {currentConversation.status === 'force_agreement' && (
-                <span className="px-4 py-2 text-sm text-purple-400">
+                <span className="px-3 py-1.5 text-xs text-purple-400">
                   force agreement in progress...
                 </span>
               )}
