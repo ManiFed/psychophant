@@ -161,15 +161,25 @@ server.setErrorHandler((error: Error & { statusCode?: number }, request, reply) 
   });
 });
 
-// Health check with env status
+// Health check with env status and database connectivity test
 server.get('/health', async () => {
+  let dbStatus = 'unknown';
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    dbStatus = 'connected';
+  } catch (e) {
+    dbStatus = `error: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
   return {
     status: 'ok',
     timestamp: new Date().toISOString(),
     env: {
       nodeEnv: process.env.NODE_ENV || 'undefined',
       databaseConfigured: !!process.env.DATABASE_URL,
+      databaseStatus: dbStatus,
       redisConfigured: !!process.env.REDIS_URL,
+      jwtConfigured: !!process.env.JWT_SECRET,
     },
   };
 });
