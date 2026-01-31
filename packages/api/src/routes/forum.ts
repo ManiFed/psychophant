@@ -7,24 +7,37 @@ import { getBadgesForUser } from '../shared/index.js';
 const createThreadSchema = z.object({
   title: z.string().min(3, 'Title must be at least 3 characters').max(200),
   content: z.string().min(1, 'Content is required').max(10000),
+  section: z.enum(['human', 'agent']).default('human'),
+  agentId: z.string().uuid().optional(),
+});
+
+const createAgentThreadSchema = z.object({
+  title: z.string().min(3).max(200).optional(),
+  topic: z.string().min(1, 'Topic is required').max(1000).optional(),
+  agentId: z.string().uuid(),
 });
 
 const createPostSchema = z.object({
   content: z.string().min(1, 'Content is required').max(10000),
+  agentId: z.string().uuid().optional(),
 });
 
 export async function forumRoutes(server: FastifyInstance) {
-  // List threads
+  // List threads (with section filter)
   server.get(
     '/threads',
-    async (request: FastifyRequest<{ Querystring: { page?: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Querystring: { page?: string; section?: string } }>, reply: FastifyReply) => {
       try {
         const page = Math.max(1, parseInt(request.query.page || '1', 10));
+        const section = request.query.section || 'all';
         const limit = 20;
         const offset = (page - 1) * limit;
 
+        const where = section !== 'all' ? { section } : {};
+
         const [threads, total] = await Promise.all([
           prisma.forumThread.findMany({
+            where,
             orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
             skip: offset,
             take: limit,
@@ -32,10 +45,13 @@ export async function forumRoutes(server: FastifyInstance) {
               user: {
                 select: { id: true, username: true, avatarUrl: true },
               },
+              agent: {
+                select: { id: true, name: true, avatarColor: true, avatarUrl: true },
+              },
               _count: { select: { posts: true } },
             },
           }),
-          prisma.forumThread.count(),
+          prisma.forumThread.count({ where }),
         ]);
 
         return {
@@ -65,11 +81,17 @@ export async function forumRoutes(server: FastifyInstance) {
             user: {
               select: { id: true, username: true, avatarUrl: true },
             },
+            agent: {
+              select: { id: true, name: true, avatarColor: true, avatarUrl: true },
+            },
             posts: {
               orderBy: { createdAt: 'asc' },
               include: {
                 user: {
                   select: { id: true, username: true, avatarUrl: true },
+                },
+                agent: {
+                  select: { id: true, name: true, avatarColor: true, avatarUrl: true },
                 },
               },
             },
@@ -97,7 +119,7 @@ export async function forumRoutes(server: FastifyInstance) {
     }
   );
 
-  // Create thread
+  // Create thread (human or agent-authored)
   server.post(
     '/threads',
     { preHandler: [authenticate] },
@@ -105,15 +127,30 @@ export async function forumRoutes(server: FastifyInstance) {
       try {
         const body = createThreadSchema.parse(request.body);
 
+        // If agent section, verify agent belongs to user
+        if (body.section === 'agent' && body.agentId) {
+          const agent = await prisma.agent.findFirst({
+            where: { id: body.agentId, userId: request.user.id },
+          });
+          if (!agent) {
+            return reply.status(400).send({ error: 'Agent not found or does not belong to you' });
+          }
+        }
+
         const thread = await prisma.forumThread.create({
           data: {
             userId: request.user.id,
+            agentId: body.section === 'agent' ? body.agentId : undefined,
             title: body.title,
             content: body.content,
+            section: body.section,
           },
           include: {
             user: {
               select: { id: true, username: true, avatarUrl: true },
+            },
+            agent: {
+              select: { id: true, name: true, avatarColor: true, avatarUrl: true },
             },
             _count: { select: { posts: true } },
           },
@@ -130,7 +167,7 @@ export async function forumRoutes(server: FastifyInstance) {
     }
   );
 
-  // Create post (reply to thread)
+  // Create post (reply to thread, optionally as an agent)
   server.post(
     '/threads/:id/posts',
     { preHandler: [authenticate] },
@@ -146,15 +183,29 @@ export async function forumRoutes(server: FastifyInstance) {
           return reply.status(404).send({ error: 'Thread not found' });
         }
 
+        // If posting as agent, verify ownership
+        if (body.agentId) {
+          const agent = await prisma.agent.findFirst({
+            where: { id: body.agentId, userId: request.user.id },
+          });
+          if (!agent) {
+            return reply.status(400).send({ error: 'Agent not found or does not belong to you' });
+          }
+        }
+
         const post = await prisma.forumPost.create({
           data: {
             threadId: request.params.id,
             userId: request.user.id,
+            agentId: body.agentId,
             content: body.content,
           },
           include: {
             user: {
               select: { id: true, username: true, avatarUrl: true },
+            },
+            agent: {
+              select: { id: true, name: true, avatarColor: true, avatarUrl: true },
             },
           },
         });

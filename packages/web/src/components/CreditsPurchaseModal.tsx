@@ -1,115 +1,21 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { loadStripe, Stripe } from '@stripe/stripe-js';
-import {
-  Elements,
-  PaymentElement,
-  useStripe,
-  useElements,
-} from '@stripe/react-stripe-js';
 import { useCreditsStore, formatCents } from '@/stores/credits';
 import { creditsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth';
 
-interface CreditPackage {
-  id: string;
-  name: string;
-  priceCents: number;
-  creditsCents: number;
-  bonus: number;
-}
+const SUBSCRIPTION_PLANS = [
+  { id: 'plus', name: 'Plus', priceCents: 300, description: '$3/month of usage', features: ['Full model selection', 'Usage-based billing', 'Extra usage available'] },
+  { id: 'pro', name: 'Pro', priceCents: 1000, description: '$10/month of usage', features: ['Full model selection', 'Usage-based billing', 'Extra usage available', 'Priority support'] },
+  { id: 'max', name: 'Max', priceCents: 2000, description: '$20/month of usage', features: ['Full model selection', 'Usage-based billing', 'Extra usage available', 'Priority support', 'Early access to features'] },
+] as const;
 
-const CREDIT_PACKAGES: CreditPackage[] = [
-  { id: 'pack_100', name: 'Starter', priceCents: 100, creditsCents: 100, bonus: 0 },
-  { id: 'pack_500', name: 'Basic', priceCents: 500, creditsCents: 550, bonus: 10 },
-  { id: 'pack_2000', name: 'Pro', priceCents: 2000, creditsCents: 2400, bonus: 20 },
-  { id: 'pack_5000', name: 'Power', priceCents: 5000, creditsCents: 6500, bonus: 30 },
-];
-
-// Initialize Stripe outside component to avoid re-initialization
-let stripePromise: Promise<Stripe | null> | null = null;
-
-function getStripe(): Promise<Stripe | null> {
-  if (!stripePromise) {
-    const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-    if (!key) {
-      console.error('NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY not set');
-      return Promise.resolve(null);
-    }
-    stripePromise = loadStripe(key);
-  }
-  return stripePromise;
-}
-
-interface CheckoutFormProps {
-  onSuccess: () => void;
-  onCancel: () => void;
-}
-
-function CheckoutForm({ onSuccess, onCancel }: CheckoutFormProps) {
-  const stripe = useStripe();
-  const elements = useElements();
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!stripe || !elements) {
-      return;
-    }
-
-    setIsProcessing(true);
-    setError(null);
-
-    const { error: submitError } = await stripe.confirmPayment({
-      elements,
-      confirmParams: {
-        return_url: `${window.location.origin}/dashboard?payment=success`,
-      },
-      redirect: 'if_required',
-    });
-
-    if (submitError) {
-      setError(submitError.message || 'Payment failed');
-      setIsProcessing(false);
-    } else {
-      // Payment succeeded
-      onSuccess();
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement />
-
-      {error && (
-        <div className="text-sm text-red-400 border border-red-500/30 bg-red-500/10 p-3">
-          {error}
-        </div>
-      )}
-
-      <div className="flex gap-3">
-        <button
-          type="submit"
-          disabled={!stripe || isProcessing}
-          className="flex-1 bg-orange-500 text-black py-3 font-medium hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {isProcessing ? 'processing...' : 'pay now'}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={isProcessing}
-          className="px-6 py-3 border border-white/10 hover:border-white/30 transition-colors disabled:opacity-50"
-        >
-          cancel
-        </button>
-      </div>
-    </form>
-  );
-}
+const EXTRA_USAGE_PACKAGES = [
+  { id: 'extra_100', name: '$1.00', cents: 100 },
+  { id: 'extra_500', name: '$5.00', cents: 500 },
+  { id: 'extra_1000', name: '$10.00', cents: 1000 },
+] as const;
 
 interface CreditsPurchaseModalProps {
   isOpen: boolean;
@@ -117,242 +23,296 @@ interface CreditsPurchaseModalProps {
 }
 
 export function CreditsPurchaseModal({ isOpen, onClose }: CreditsPurchaseModalProps) {
-  const { freeCents, purchasedCents, totalCents, lastFreeReset, fetchBalance } = useCreditsStore();
+  const { freeCents, subscription, fetchBalance } = useCreditsStore();
   const { token } = useAuthStore();
-  const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
-  const [isInitiating, setIsInitiating] = useState(false);
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [stripeInstance, setStripeInstance] = useState<Stripe | null>(null);
+  const [tab, setTab] = useState<'overview' | 'plans' | 'extra'>('overview');
+  const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Load Stripe on mount
-  useEffect(() => {
-    getStripe().then(setStripeInstance);
-  }, []);
+  const [success, setSuccess] = useState<string | null>(null);
 
   // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
-      setSelectedPackage(null);
-      setClientSecret(null);
+      setTab('overview');
       setError(null);
+      setSuccess(null);
     }
   }, [isOpen]);
 
-  const handleInitiatePurchase = async () => {
-    if (!selectedPackage || !token) return;
-
-    setIsInitiating(true);
+  const handleSubscribe = async (planId: string) => {
+    if (!token) return;
+    setIsProcessing(true);
     setError(null);
-
     try {
-      const response = await creditsApi.purchase(token, selectedPackage);
-      setClientSecret(response.clientSecret);
+      await creditsApi.subscribe(token, planId);
+      await fetchBalance();
+      setSuccess(`Subscribed to ${planId} plan!`);
+      setTab('overview');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to initiate purchase';
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Failed to subscribe');
     } finally {
-      setIsInitiating(false);
+      setIsProcessing(false);
     }
   };
 
-  const handlePaymentSuccess = () => {
-    // Refresh balance after successful payment
-    fetchBalance();
-    setClientSecret(null);
-    setSelectedPackage(null);
-    alert('Payment successful! Credits have been added to your account.');
-    onClose();
+  const handleCancelSubscription = async () => {
+    if (!token || !confirm('Cancel your subscription? You can still use it until the end of the billing period.')) return;
+    setIsProcessing(true);
+    setError(null);
+    try {
+      await creditsApi.cancelSubscription(token);
+      await fetchBalance();
+      setSuccess('Subscription cancelled.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  const handleCancelPayment = () => {
-    setClientSecret(null);
+  const handleAddExtraUsage = async (packageId: string) => {
+    if (!token) return;
+    setIsProcessing(true);
+    setError(null);
+    try {
+      await creditsApi.addExtraUsage(token, packageId);
+      await fetchBalance();
+      setSuccess('Extra usage added!');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add extra usage');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const formatResetTime = () => {
-    if (!lastFreeReset) return 'Unknown';
-    const resetDate = new Date(lastFreeReset);
-    const nextReset = new Date(resetDate);
-    nextReset.setUTCDate(nextReset.getUTCDate() + 1);
-    nextReset.setUTCHours(0, 0, 0, 0);
-
     const now = new Date();
-    const hoursUntilReset = Math.max(0, Math.floor((nextReset.getTime() - now.getTime()) / (1000 * 60 * 60)));
-    const minutesUntilReset = Math.max(0, Math.floor(((nextReset.getTime() - now.getTime()) % (1000 * 60 * 60)) / (1000 * 60)));
-
+    const tomorrow = new Date(now);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    tomorrow.setUTCHours(0, 0, 0, 0);
+    const hoursUntilReset = Math.max(0, Math.floor((tomorrow.getTime() - now.getTime()) / (1000 * 60 * 60)));
+    const minutesUntilReset = Math.max(0, Math.floor(((tomorrow.getTime() - now.getTime()) % (1000 * 60 * 60)) / (1000 * 60)));
     return `${hoursUntilReset}h ${minutesUntilReset}m`;
   };
 
   if (!isOpen) return null;
 
-  const selectedPack = selectedPackage
-    ? CREDIT_PACKAGES.find((p) => p.id === selectedPackage)
-    : null;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-        onClick={clientSecret ? undefined : onClose}
-      />
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Modal */}
       <div className="relative bg-black border border-white/20 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="border-b border-white/10 p-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold">
-              {clientSecret ? 'complete payment' : 'credits'}
-            </h2>
-            {!clientSecret && (
+            <h2 className="text-xl font-bold">credits & plans</h2>
+            <button onClick={onClose} className="text-white/50 hover:text-white transition-colors text-2xl leading-none">
+              &times;
+            </button>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex gap-1 mt-4">
+            {(['overview', 'plans', ...(subscription ? ['extra'] : [])] as const).map((t) => (
               <button
-                onClick={onClose}
-                className="text-white/50 hover:text-white transition-colors text-2xl leading-none"
+                key={t}
+                onClick={() => { setTab(t as typeof tab); setError(null); setSuccess(null); }}
+                className={`text-xs px-3 py-1.5 transition-colors ${
+                  tab === t ? 'bg-orange-500 text-black font-medium' : 'text-white/50 hover:text-white hover:bg-white/5'
+                }`}
               >
-                &times;
+                {t}
               </button>
-            )}
+            ))}
           </div>
         </div>
 
-        {clientSecret && stripeInstance ? (
-          // Payment Form
-          <div className="p-6">
-            {selectedPack && (
-              <div className="mb-6 p-4 border border-white/10 bg-white/5">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="font-medium">{selectedPack.name} Package</p>
-                    <p className="text-sm text-white/50">
-                      {formatCents(selectedPack.creditsCents)} credits
-                    </p>
-                  </div>
-                  <p className="text-xl font-bold">{formatCents(selectedPack.priceCents)}</p>
-                </div>
-              </div>
-            )}
-
-            <Elements
-              stripe={stripeInstance}
-              options={{
-                clientSecret,
-                appearance: {
-                  theme: 'night',
-                  variables: {
-                    colorPrimary: '#f97316',
-                    colorBackground: '#000000',
-                    colorText: '#ffffff',
-                    colorDanger: '#ef4444',
-                    fontFamily: 'ui-monospace, monospace',
-                    borderRadius: '0px',
-                  },
-                },
-              }}
-            >
-              <CheckoutForm
-                onSuccess={handlePaymentSuccess}
-                onCancel={handleCancelPayment}
-              />
-            </Elements>
+        {error && (
+          <div className="mx-6 mt-4 p-3 border border-red-500/30 bg-red-500/10 text-xs text-red-400">
+            {error}
           </div>
-        ) : (
-          <>
-            {/* Current Balance */}
-            <div className="p-6 border-b border-white/10">
-              <div className="text-center">
-                <p className="text-xs text-white/50 uppercase tracking-wider mb-2">current balance</p>
-                <p className="text-4xl font-bold text-orange-500">{formatCents(totalCents)}</p>
-                <div className="flex justify-center gap-6 mt-4 text-sm">
-                  <div>
-                    <span className="text-white/50">free: </span>
-                    <span className="text-green-400">{formatCents(freeCents)}</span>
+        )}
+        {success && (
+          <div className="mx-6 mt-4 p-3 border border-green-500/30 bg-green-500/10 text-xs text-green-400">
+            {success}
+          </div>
+        )}
+
+        {tab === 'overview' && (
+          <div className="p-6 space-y-6">
+            {subscription ? (
+              <>
+                <div className="text-center">
+                  <p className="text-xs text-white/50 uppercase tracking-wider mb-2">{subscription.planName} plan</p>
+                  <div className="relative w-full h-4 bg-white/10 rounded-full overflow-hidden mt-3">
+                    <div
+                      className="absolute inset-y-0 left-0 bg-orange-500 rounded-full transition-all"
+                      style={{ width: `${subscription.usagePercent}%` }}
+                    />
                   </div>
-                  <div>
-                    <span className="text-white/50">purchased: </span>
-                    <span>{formatCents(purchasedCents)}</span>
+                  <p className="text-3xl font-bold text-orange-500 mt-3">{subscription.usagePercent}% used</p>
+                  <p className="text-xs text-white/40 mt-1">
+                    {formatCents(subscription.usageCents)} / {formatCents(subscription.totalBudgetCents)} budget
+                  </p>
+                  <p className="text-xs text-white/30 mt-1">
+                    {formatCents(subscription.remainingCents)} remaining
+                    {subscription.extraUsageCents > 0 && (
+                      <span> (incl. {formatCents(subscription.extraUsageCents)} extra)</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-white/20 mt-2">
+                    period ends {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setTab('extra')}
+                    className="flex-1 bg-orange-500/20 text-orange-400 py-2 text-xs font-medium hover:bg-orange-500/30 transition-colors"
+                  >
+                    add extra usage
+                  </button>
+                  <button
+                    onClick={handleCancelSubscription}
+                    disabled={isProcessing}
+                    className="px-4 py-2 text-xs text-white/40 hover:text-red-400 border border-white/10 hover:border-red-500/30 transition-colors"
+                  >
+                    cancel plan
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-center">
+                  <p className="text-xs text-white/50 uppercase tracking-wider mb-2">free plan</p>
+                  <p className="text-4xl font-bold text-orange-500">{freeCents} credits</p>
+                  <p className="text-xs text-white/40 mt-2">10 credits/day · resets in {formatResetTime()}</p>
+                </div>
+
+                <div className="border border-white/10 p-4 space-y-2">
+                  <p className="text-xs text-white/60 font-medium">model costs (free plan)</p>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/50">GLM 4.5 Air (Standard)</span>
+                    <span className="text-orange-400">1 credit</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/50">GPT-OSS 120B (Advanced)</span>
+                    <span className="text-orange-400">2 credits</span>
                   </div>
                 </div>
-                <p className="text-xs text-white/30 mt-3">
-                  free credits reset in {formatResetTime()}
+
+                <button
+                  onClick={() => setTab('plans')}
+                  className="w-full bg-orange-500 text-black py-3 text-xs font-medium hover:bg-orange-400 transition-colors"
+                >
+                  upgrade to a paid plan
+                </button>
+                <p className="text-xs text-white/30 text-center">
+                  paid plans unlock all models and usage-based billing
                 </p>
+              </>
+            )}
+          </div>
+        )}
+
+        {tab === 'plans' && (
+          <div className="p-6 space-y-4">
+            <p className="text-xs text-white/50 uppercase tracking-wider">subscription plans</p>
+            <p className="text-xs text-white/40">
+              paid plans give you a monthly usage budget and access to all models.
+              pay for what you use - when you hit your limit, add extra usage.
+            </p>
+
+            {SUBSCRIPTION_PLANS.map((plan) => (
+              <div
+                key={plan.id}
+                className="border border-white/10 p-4 hover:border-orange-500/30 transition-colors"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <span className="font-bold text-lg">{plan.name}</span>
+                    <span className="ml-2 text-white/50 text-sm">{plan.description}</span>
+                  </div>
+                </div>
+                <ul className="space-y-1 mb-3">
+                  {plan.features.map((f, i) => (
+                    <li key={i} className="text-xs text-white/50">
+                      <span className="text-green-400 mr-1">+</span> {f}
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  onClick={() => handleSubscribe(plan.id)}
+                  disabled={isProcessing || (subscription?.plan === plan.id)}
+                  className="w-full bg-orange-500 text-black py-2 text-xs font-medium hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {subscription?.plan === plan.id ? 'current plan' : isProcessing ? 'processing...' : `subscribe - ${formatCents(plan.priceCents)}/mo`}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === 'extra' && subscription && (
+          <div className="p-6 space-y-4">
+            <p className="text-xs text-white/50 uppercase tracking-wider">add extra usage</p>
+            <p className="text-xs text-white/40">
+              add one-time extra usage to your {subscription.planName} plan.
+              extra usage expires at the end of your billing period.
+            </p>
+
+            <div className="grid grid-cols-3 gap-3">
+              {EXTRA_USAGE_PACKAGES.map((pkg) => (
+                <button
+                  key={pkg.id}
+                  onClick={() => handleAddExtraUsage(pkg.id)}
+                  disabled={isProcessing}
+                  className="border border-white/10 p-4 hover:border-orange-500/30 transition-colors text-center disabled:opacity-50"
+                >
+                  <p className="text-xl font-bold">{pkg.name}</p>
+                  <p className="text-[10px] text-white/40 mt-1">extra usage</p>
+                </button>
+              ))}
+            </div>
+
+            <div className="border border-white/10 p-4 space-y-2">
+              <p className="text-xs text-white/60 font-medium">auto-reload</p>
+              <p className="text-xs text-white/40">
+                automatically add usage when your budget runs out.
+                {subscription.autoReloadCents > 0 && (
+                  <span className="text-orange-400"> Currently: {formatCents(subscription.autoReloadCents)}/reload</span>
+                )}
+              </p>
+              <div className="flex gap-2">
+                {[0, 100, 500, 1000].map((amount) => (
+                  <button
+                    key={amount}
+                    onClick={async () => {
+                      if (!token) return;
+                      setIsProcessing(true);
+                      try {
+                        await creditsApi.setAutoReload(token, amount);
+                        await fetchBalance();
+                        setSuccess(amount === 0 ? 'Auto-reload disabled' : `Auto-reload set to ${formatCents(amount)}`);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Failed');
+                      } finally {
+                        setIsProcessing(false);
+                      }
+                    }}
+                    disabled={isProcessing}
+                    className={`text-xs px-3 py-1.5 border transition-colors ${
+                      subscription.autoReloadCents === amount
+                        ? 'border-orange-500 bg-orange-500/10 text-orange-400'
+                        : 'border-white/10 text-white/50 hover:border-white/30'
+                    }`}
+                  >
+                    {amount === 0 ? 'off' : formatCents(amount)}
+                  </button>
+                ))}
               </div>
             </div>
-
-            {/* Packages */}
-            <div className="p-6">
-              <p className="text-xs text-white/50 uppercase tracking-wider mb-4">buy credits</p>
-
-              {error && (
-                <div className="mb-4 p-3 border border-red-500/30 bg-red-500/10 text-sm text-red-400">
-                  {error}
-                </div>
-              )}
-
-              {!stripeInstance ? (
-                <div className="text-center py-8 text-white/50">
-                  <p>Payment processing is not available.</p>
-                  <p className="text-xs mt-2">Please check your configuration.</p>
-                </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    {CREDIT_PACKAGES.map((pkg) => (
-                      <button
-                        key={pkg.id}
-                        onClick={() => setSelectedPackage(pkg.id)}
-                        className={`p-4 border transition-all text-left ${
-                          selectedPackage === pkg.id
-                            ? 'border-orange-500 bg-orange-500/10'
-                            : 'border-white/10 hover:border-white/30'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-medium">{pkg.name}</span>
-                          {pkg.bonus > 0 && (
-                            <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5">
-                              +{pkg.bonus}%
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-2xl font-bold">{formatCents(pkg.priceCents)}</p>
-                        <p className="text-xs text-white/50 mt-1">
-                          get {formatCents(pkg.creditsCents)} credits
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Purchase Button */}
-                  <button
-                    onClick={handleInitiatePurchase}
-                    disabled={!selectedPackage || isInitiating}
-                    className="w-full mt-6 bg-orange-500 text-black py-3 font-medium hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {isInitiating
-                      ? 'processing...'
-                      : selectedPackage
-                      ? 'continue to payment'
-                      : 'select a package'}
-                  </button>
-                </>
-              )}
-
-              <p className="text-xs text-white/30 text-center mt-4">
-                secure payment powered by Stripe
-              </p>
-            </div>
-
-            {/* Info */}
-            <div className="p-6 border-t border-white/10 bg-white/5">
-              <p className="text-xs text-white/50 leading-relaxed">
-                credits are used for AI message generation. costs vary by model -
-                cheaper models like GPT-4o-mini cost fractions of a cent per message,
-                while premium models like Claude Opus cost more. you get 10 cents of
-                free credits daily.
-              </p>
-            </div>
-          </>
+          </div>
         )}
       </div>
     </div>

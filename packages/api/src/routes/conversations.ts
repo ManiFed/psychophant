@@ -572,7 +572,7 @@ export async function conversationRoutes(server: FastifyInstance) {
     }
   );
 
-  // Share/unshare conversation
+  // Share/unshare conversation (public toggle)
   server.post<ShareRoute>(
     '/:conversationId/share',
     { preHandler: [authenticate] },
@@ -593,7 +593,6 @@ export async function conversationRoutes(server: FastifyInstance) {
       let publicSlug = conversation.publicSlug;
 
       if (isPublic && !publicSlug) {
-        // Generate a unique slug
         publicSlug = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       }
 
@@ -612,6 +611,200 @@ export async function conversationRoutes(server: FastifyInstance) {
           : null,
         slug: updated.publicSlug,
       };
+    }
+  );
+
+  // Generate a share link (separate from public toggle)
+  server.post<ConversationIdParams>(
+    '/:conversationId/share-link',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const conversation = await prisma.conversation.findFirst({
+        where: {
+          id: request.params.conversationId,
+          userId: request.user.id,
+        },
+      });
+
+      if (!conversation) {
+        return reply.status(404).send({ error: 'Conversation not found' });
+      }
+
+      let shareSlug = conversation.shareSlug;
+      if (!shareSlug) {
+        shareSlug = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { shareSlug },
+        });
+      }
+
+      const webUrl = process.env.WEB_URL || process.env.APP_URL || '';
+      return {
+        shareSlug,
+        shareUrl: `${webUrl}/share/${shareSlug}`,
+      };
+    }
+  );
+
+  // Remove share link
+  server.delete<ConversationIdParams>(
+    '/:conversationId/share-link',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const conversation = await prisma.conversation.findFirst({
+        where: {
+          id: request.params.conversationId,
+          userId: request.user.id,
+        },
+      });
+
+      if (!conversation) {
+        return reply.status(404).send({ error: 'Conversation not found' });
+      }
+
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { shareSlug: null },
+      });
+
+      return { success: true };
+    }
+  );
+
+  // View shared conversation (no auth required)
+  server.get(
+    '/shared/:shareSlug',
+    async (request: FastifyRequest<{ Params: { shareSlug: string } }>, reply: FastifyReply) => {
+      const conversation = await prisma.conversation.findFirst({
+        where: { shareSlug: request.params.shareSlug },
+        include: {
+          participants: {
+            include: {
+              agent: {
+                select: { id: true, name: true, avatarColor: true, avatarUrl: true, model: true, role: true },
+              },
+            },
+            orderBy: { turnOrder: 'asc' },
+          },
+          user: {
+            select: { id: true, username: true, avatarUrl: true },
+          },
+        },
+      });
+
+      if (!conversation) {
+        return reply.status(404).send({ error: 'Shared conversation not found' });
+      }
+
+      const messages = await prisma.message.findMany({
+        where: { conversationId: conversation.id },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      return {
+        conversation,
+        messages,
+        participants: conversation.participants,
+      };
+    }
+  );
+
+  // Remix a shared conversation (create a copy to continue)
+  server.post(
+    '/shared/:shareSlug/remix',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest<{ Params: { shareSlug: string } }>, reply: FastifyReply) => {
+      const original = await prisma.conversation.findFirst({
+        where: { shareSlug: request.params.shareSlug },
+        include: {
+          participants: {
+            include: { agent: true },
+          },
+        },
+      });
+
+      if (!original) {
+        return reply.status(404).send({ error: 'Shared conversation not found' });
+      }
+
+      // Clone agents that belong to the viewer, or create copies
+      const agentMapping: Record<string, string> = {};
+      for (const participant of original.participants) {
+        // Check if user already has this agent
+        const existingAgent = await prisma.agent.findFirst({
+          where: {
+            userId: request.user.id,
+            name: participant.agent.name,
+            model: participant.agent.model,
+          },
+        });
+
+        if (existingAgent) {
+          agentMapping[participant.agentId] = existingAgent.id;
+        } else {
+          // Clone agent for the user
+          const cloned = await prisma.agent.create({
+            data: {
+              userId: request.user.id,
+              name: participant.agent.name,
+              model: participant.agent.model,
+              role: participant.agent.role,
+              systemPrompt: participant.agent.systemPrompt,
+              avatarColor: participant.agent.avatarColor,
+              avatarUrl: participant.agent.avatarUrl,
+            },
+          });
+          agentMapping[participant.agentId] = cloned.id;
+        }
+      }
+
+      // Get all messages
+      const originalMessages = await prisma.message.findMany({
+        where: { conversationId: original.id },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      // Create remixed conversation
+      const remixed = await prisma.conversation.create({
+        data: {
+          userId: request.user.id,
+          title: `${original.title || 'Conversation'} (Remix)`,
+          mode: original.mode,
+          totalRounds: original.totalRounds,
+          currentRound: original.currentRound,
+          initialPrompt: original.initialPrompt,
+          parentConversationId: original.id,
+          participants: {
+            create: original.participants.map((p) => ({
+              agentId: agentMapping[p.agentId],
+              turnOrder: p.turnOrder,
+            })),
+          },
+          messages: {
+            create: originalMessages.map((m) => ({
+              agentId: m.agentId ? agentMapping[m.agentId] || m.agentId : null,
+              userId: m.userId === original.userId ? request.user.id : m.userId,
+              content: m.content,
+              role: m.role,
+              roundNumber: m.roundNumber,
+              modelUsed: m.modelUsed,
+              inputTokens: m.inputTokens,
+              outputTokens: m.outputTokens,
+              costCents: 0,
+              generationTimeMs: m.generationTimeMs,
+              messageType: m.messageType,
+            })),
+          },
+        },
+        include: {
+          participants: {
+            include: { agent: true },
+          },
+        },
+      });
+
+      return { conversation: remixed };
     }
   );
 }

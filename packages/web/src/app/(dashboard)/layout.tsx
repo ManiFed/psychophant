@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/stores/auth';
-import { useCreditsStore, formatCents } from '@/stores/credits';
+import { useCreditsStore, formatCents, formatCreditsDisplay } from '@/stores/credits';
 import { CreditsPurchaseModal } from '@/components/CreditsPurchaseModal';
 import { WelcomeTour } from '@/components/WelcomeTour';
 
@@ -31,7 +31,7 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const { user, token, logout, checkAuth } = useAuthStore();
-  const { totalCents, fetchBalance } = useCreditsStore();
+  const { totalCents, freeCents, subscription, fetchBalance } = useCreditsStore();
   const [isCreditsModalOpen, setIsCreditsModalOpen] = useState(false);
 
   useEffect(() => {
@@ -83,6 +83,13 @@ export default function DashboardLayout({
               >
                 arena
               </Link>
+              <Link
+                href="/forum"
+                data-tour="forum"
+                className="text-xs text-white/60 hover:text-white transition-colors"
+              >
+                forum
+              </Link>
             </nav>
           </div>
 
@@ -93,8 +100,12 @@ export default function DashboardLayout({
                 data-tour="credits"
                 className="border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs hover:bg-orange-500/20 transition-colors cursor-pointer"
               >
-                <span className="text-white/50">credits: </span>
-                <span className="text-orange-500 font-medium">{formatCents(totalCents)}</span>
+                <span className="text-white/50">
+                  {subscription ? `${subscription.planName}: ` : 'credits: '}
+                </span>
+                <span className="text-orange-500 font-medium">
+                  {formatCreditsDisplay({ subscription, freeCents })}
+                </span>
               </button>
             </div>
             <div className="flex items-center gap-3">

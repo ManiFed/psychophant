@@ -234,6 +234,47 @@ export async function arenaRoutes(server: FastifyInstance) {
       }));
     }
 
+    // If arena is active and all participants are now ready, resume the conversation
+    // for the next round (the orchestration auto-pauses between rounds)
+    if (updated.isReady) {
+      const room = await prisma.arenaRoom.findUnique({
+        where: { id },
+        include: { participants: true },
+      });
+
+      if (room && room.status === 'active' && room.conversationId) {
+        const allReady = room.participants.every((p) =>
+          p.id === updated.id ? true : p.isReady
+        );
+
+        if (allReady) {
+          // Reset all ready flags for next round
+          await prisma.arenaParticipant.updateMany({
+            where: { arenaRoomId: id },
+            data: { isReady: false },
+          });
+
+          // Resume the paused conversation
+          await prisma.conversation.update({
+            where: { id: room.conversationId },
+            data: { status: 'active' },
+          });
+
+          // Queue the next turn
+          await queueHelpers.resumeConversation(room.conversationId);
+
+          // Notify participants that the round is resuming
+          if (redis) {
+            await redis.publish(`arena:${id}`, JSON.stringify({
+              type: 'arena:round_resuming',
+              data: {},
+              timestamp: new Date().toISOString(),
+            }));
+          }
+        }
+      }
+    }
+
     return { participant: updated };
   });
 

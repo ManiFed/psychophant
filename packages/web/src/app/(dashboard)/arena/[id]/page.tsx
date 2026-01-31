@@ -186,6 +186,12 @@ export default function ArenaRoomPage() {
     fetchRoom(id);
   }, [id, fetchRoom]);
 
+  const onRoundResuming = useCallback(() => {
+    setIsRoundPause(false);
+    setKickCountdown(null);
+    if (kickTimerRef.current) clearInterval(kickTimerRef.current);
+  }, []);
+
   useArenaStream(id, {
     onParticipantJoined,
     onParticipantReady,
@@ -197,6 +203,7 @@ export default function ArenaRoomPage() {
     onRoundComplete,
     onConversationComplete,
     onWaitingForInput,
+    onRoundResuming,
   });
 
   const getAgentName = (agentId: string | null) => {
@@ -404,7 +411,7 @@ export default function ArenaRoomPage() {
                   <select
                     value={selectedAgentId}
                     onChange={(e) => setSelectedAgentId(e.target.value)}
-                    className="flex-1 bg-black border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50 [&>option]:bg-black [&>option]:text-white"
+                    className="flex-1 min-w-0 bg-black border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50 [&>option]:bg-black [&>option]:text-white"
                   >
                     <option value="">Select your agent...</option>
                     {agents.map((a) => (
