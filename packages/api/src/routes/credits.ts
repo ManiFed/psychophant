@@ -5,9 +5,15 @@ import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { redisHelpers } from '../lib/redis.js';
 import {
+  DAILY_FREE_CREDITS,
   DAILY_FREE_CREDITS_CENTS,
   CREDIT_PACKAGES,
   CreditPackageId,
+  SUBSCRIPTION_PLANS,
+  EXTRA_USAGE_PACKAGES,
+  ExtraUsagePackageId,
+  FREE_TIER_MODELS,
+  getFreeTierCreditCost,
 } from '../shared/index.js';
 
 // Initialize Stripe client (only if key is available)
@@ -95,11 +101,51 @@ export async function creditRoutes(server: FastifyInstance) {
         balance.lastFreeReset
       );
 
+      // Check for active subscription
+      const subscription = await prisma.subscription.findUnique({
+        where: { userId },
+      });
+
+      const activeSub = subscription && subscription.status === 'active' &&
+        new Date(subscription.currentPeriodEnd) > new Date()
+        ? subscription
+        : null;
+
+      if (activeSub) {
+        const plan = SUBSCRIPTION_PLANS[activeSub.plan as keyof typeof SUBSCRIPTION_PLANS];
+        const budgetCents = plan?.budgetCents ?? 0;
+        const usedCents = activeSub.usageCents;
+        const extraCents = activeSub.extraUsageCents;
+        const totalBudget = budgetCents + extraCents;
+        const usagePercent = totalBudget > 0 ? Math.min(100, Math.round((usedCents / totalBudget) * 100)) : 0;
+
+        return {
+          freeCents: balance.freeCreditsCents,
+          purchasedCents: balance.purchasedCreditsCents,
+          totalCents: balance.freeCreditsCents + balance.purchasedCreditsCents,
+          lastFreeReset: balance.lastFreeReset.toISOString(),
+          subscription: {
+            plan: activeSub.plan,
+            planName: plan?.name ?? activeSub.plan,
+            budgetCents,
+            usageCents: usedCents,
+            extraUsageCents: extraCents,
+            totalBudgetCents: totalBudget,
+            remainingCents: Math.max(0, totalBudget - usedCents),
+            usagePercent,
+            currentPeriodEnd: activeSub.currentPeriodEnd.toISOString(),
+            autoReloadCents: activeSub.autoReloadCents,
+          },
+        };
+      }
+
       return {
         freeCents: balance.freeCreditsCents,
         purchasedCents: balance.purchasedCreditsCents,
         totalCents: balance.freeCreditsCents + balance.purchasedCreditsCents,
+        freeCredits: balance.freeCreditsCents, // alias for the new credit system
         lastFreeReset: balance.lastFreeReset.toISOString(),
+        subscription: null,
       };
     }
   );
@@ -341,6 +387,200 @@ export async function creditRoutes(server: FastifyInstance) {
 
     return { packages };
   });
+
+  // Get subscription plans
+  server.get('/plans', async () => {
+    const plans = Object.entries(SUBSCRIPTION_PLANS).map(([id, plan]) => ({
+      id,
+      ...plan,
+    }));
+    return { plans };
+  });
+
+  // Get available models for the user's tier
+  server.get(
+    '/models',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest) => {
+      const userId = request.user.id;
+
+      const subscription = await prisma.subscription.findUnique({
+        where: { userId },
+      });
+
+      const hasActiveSub = subscription && subscription.status === 'active' &&
+        new Date(subscription.currentPeriodEnd) > new Date();
+
+      if (hasActiveSub) {
+        // Paid users get all models from OpenRouter
+        return { tier: 'paid', plan: subscription!.plan, models: 'all' };
+      }
+
+      // Free users get limited models
+      return {
+        tier: 'free',
+        plan: null,
+        models: FREE_TIER_MODELS,
+      };
+    }
+  );
+
+  // Subscribe to a plan (creates Stripe subscription or manual for now)
+  server.post(
+    '/subscribe',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const body = z.object({
+          plan: z.enum(['plus', 'pro', 'max']),
+        }).parse(request.body);
+
+        const userId = request.user.id;
+
+        // Check for existing active subscription
+        const existing = await prisma.subscription.findUnique({
+          where: { userId },
+        });
+
+        if (existing && existing.status === 'active') {
+          return reply.status(400).send({ error: 'Already subscribed. Cancel first to change plans.' });
+        }
+
+        const now = new Date();
+        const periodEnd = new Date(now);
+        periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+        const subscription = await prisma.subscription.upsert({
+          where: { userId },
+          create: {
+            userId,
+            plan: body.plan,
+            status: 'active',
+            currentPeriodStart: now,
+            currentPeriodEnd: periodEnd,
+            usageCents: 0,
+            extraUsageCents: 0,
+          },
+          update: {
+            plan: body.plan,
+            status: 'active',
+            currentPeriodStart: now,
+            currentPeriodEnd: periodEnd,
+            usageCents: 0,
+            extraUsageCents: 0,
+          },
+        });
+
+        return { subscription };
+      } catch (err) {
+        if (err instanceof z.ZodError) {
+          return reply.status(400).send({ error: 'Validation error', details: err.errors });
+        }
+        console.error('Error subscribing:', err);
+        return reply.status(500).send({ error: 'Failed to subscribe' });
+      }
+    }
+  );
+
+  // Cancel subscription
+  server.post(
+    '/cancel-subscription',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const userId = request.user.id;
+
+      const subscription = await prisma.subscription.findUnique({
+        where: { userId },
+      });
+
+      if (!subscription || subscription.status !== 'active') {
+        return reply.status(400).send({ error: 'No active subscription' });
+      }
+
+      await prisma.subscription.update({
+        where: { userId },
+        data: { status: 'cancelled' },
+      });
+
+      return { success: true };
+    }
+  );
+
+  // Add extra usage to subscription
+  server.post(
+    '/extra-usage',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const body = z.object({
+          packageId: z.enum(['extra_100', 'extra_500', 'extra_1000'] as const),
+        }).parse(request.body);
+
+        const userId = request.user.id;
+
+        const subscription = await prisma.subscription.findUnique({
+          where: { userId },
+        });
+
+        if (!subscription || subscription.status !== 'active') {
+          return reply.status(400).send({ error: 'Active subscription required for extra usage' });
+        }
+
+        const pkg = EXTRA_USAGE_PACKAGES[body.packageId];
+
+        await prisma.subscription.update({
+          where: { userId },
+          data: {
+            extraUsageCents: { increment: pkg.cents },
+          },
+        });
+
+        return { success: true, addedCents: pkg.cents };
+      } catch (err) {
+        if (err instanceof z.ZodError) {
+          return reply.status(400).send({ error: 'Validation error', details: err.errors });
+        }
+        console.error('Error adding extra usage:', err);
+        return reply.status(500).send({ error: 'Failed to add extra usage' });
+      }
+    }
+  );
+
+  // Set auto-reload amount
+  server.post(
+    '/auto-reload',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const body = z.object({
+          amountCents: z.number().min(0).max(10000),
+        }).parse(request.body);
+
+        const userId = request.user.id;
+
+        const subscription = await prisma.subscription.findUnique({
+          where: { userId },
+        });
+
+        if (!subscription || subscription.status !== 'active') {
+          return reply.status(400).send({ error: 'Active subscription required' });
+        }
+
+        await prisma.subscription.update({
+          where: { userId },
+          data: { autoReloadCents: body.amountCents },
+        });
+
+        return { success: true, autoReloadCents: body.amountCents };
+      } catch (err) {
+        if (err instanceof z.ZodError) {
+          return reply.status(400).send({ error: 'Validation error', details: err.errors });
+        }
+        console.error('Error setting auto-reload:', err);
+        return reply.status(500).send({ error: 'Failed to set auto-reload' });
+      }
+    }
+  );
 }
 
 // Helper function for deducting credits (used by orchestration)

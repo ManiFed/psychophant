@@ -205,15 +205,49 @@ export const conversationsApi = {
       token,
       method: 'DELETE',
     }),
+
+  share: (token: string, id: string, isPublic: boolean) =>
+    fetchApi<{ isPublic: boolean; publicUrl: string | null; slug: string | null }>(
+      `/api/conversations/${id}/share`,
+      { token, method: 'POST', body: JSON.stringify({ isPublic }) }
+    ),
+
+  createShareLink: (token: string, id: string) =>
+    fetchApi<{ shareSlug: string; shareUrl: string }>(
+      `/api/conversations/${id}/share-link`,
+      { token, method: 'POST', body: JSON.stringify({}) }
+    ),
+
+  removeShareLink: (token: string, id: string) =>
+    fetchApi<{ success: boolean }>(`/api/conversations/${id}/share-link`, {
+      token,
+      method: 'DELETE',
+    }),
+
+  getShared: (shareSlug: string) =>
+    fetchApi<{ conversation: Conversation & { user: { id: string; username: string | null } }; messages: Message[]; participants: Participant[] }>(
+      `/api/conversations/shared/${shareSlug}`
+    ),
+
+  remixShared: (token: string, shareSlug: string) =>
+    fetchApi<{ conversation: Conversation }>(`/api/conversations/shared/${shareSlug}/remix`, {
+      token,
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
 };
 
 // Credits API
 export const creditsApi = {
   balance: (token: string) =>
-    fetchApi<{ freeCents: number; purchasedCents: number; totalCents: number; lastFreeReset: string }>(
-      '/api/credits/balance',
-      { token }
-    ),
+    fetchApi<{
+      freeCents: number;
+      purchasedCents: number;
+      totalCents: number;
+      freeCredits?: number;
+      lastFreeReset: string;
+      subscription: SubscriptionInfo | null;
+    }>('/api/credits/balance', { token }),
 
   purchase: (token: string, packageId: string) =>
     fetchApi<{ clientSecret: string }>('/api/credits/purchase', {
@@ -225,6 +259,43 @@ export const creditsApi = {
   transactions: (token: string) =>
     fetchApi<{ transactions: CreditTransaction[] }>('/api/credits/transactions', {
       token,
+    }),
+
+  getPlans: () =>
+    fetchApi<{ plans: SubscriptionPlan[] }>('/api/credits/plans'),
+
+  getModels: (token: string) =>
+    fetchApi<{ tier: string; plan: string | null; models: FreeTierModel[] | 'all' }>(
+      '/api/credits/models',
+      { token }
+    ),
+
+  subscribe: (token: string, plan: string) =>
+    fetchApi<{ subscription: unknown }>('/api/credits/subscribe', {
+      token,
+      method: 'POST',
+      body: JSON.stringify({ plan }),
+    }),
+
+  cancelSubscription: (token: string) =>
+    fetchApi<{ success: boolean }>('/api/credits/cancel-subscription', {
+      token,
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  addExtraUsage: (token: string, packageId: string) =>
+    fetchApi<{ success: boolean; addedCents: number }>('/api/credits/extra-usage', {
+      token,
+      method: 'POST',
+      body: JSON.stringify({ packageId }),
+    }),
+
+  setAutoReload: (token: string, amountCents: number) =>
+    fetchApi<{ success: boolean; autoReloadCents: number }>('/api/credits/auto-reload', {
+      token,
+      method: 'POST',
+      body: JSON.stringify({ amountCents }),
     }),
 };
 
@@ -302,6 +373,7 @@ interface CreateConversationData {
   totalRounds?: number;
   title?: string;
   initialPrompt: string;
+  isPublic?: boolean;
 }
 
 interface Message {
@@ -340,6 +412,35 @@ interface CreditTransaction {
   description: string | null;
   balanceAfterCents: number;
   createdAt: string;
+}
+
+// Subscription types
+interface SubscriptionInfo {
+  plan: string;
+  planName: string;
+  budgetCents: number;
+  usageCents: number;
+  extraUsageCents: number;
+  totalBudgetCents: number;
+  remainingCents: number;
+  usagePercent: number;
+  currentPeriodEnd: string;
+  autoReloadCents: number;
+}
+
+interface SubscriptionPlan {
+  id: string;
+  name: string;
+  priceCents: number;
+  budgetCents: number;
+  description: string;
+}
+
+interface FreeTierModel {
+  id: string;
+  name: string;
+  credits: number;
+  tier: 'standard' | 'advanced';
 }
 
 // Profiles API
@@ -383,26 +484,31 @@ export const profilesApi = {
 
 // Forum API
 export const forumApi = {
-  listThreads: (page?: number) =>
-    fetchApi<{ threads: ForumThread[]; total: number; page: number; totalPages: number }>(
-      `/api/forum/threads${page ? `?page=${page}` : ''}`
-    ),
+  listThreads: (page?: number, section?: string) => {
+    const params = new URLSearchParams();
+    if (page) params.set('page', String(page));
+    if (section && section !== 'all') params.set('section', section);
+    const qs = params.toString();
+    return fetchApi<{ threads: ForumThread[]; total: number; page: number; totalPages: number }>(
+      `/api/forum/threads${qs ? `?${qs}` : ''}`
+    );
+  },
 
   getThread: (id: string) =>
     fetchApi<{ thread: ForumThreadFull }>(`/api/forum/threads/${id}`),
 
-  createThread: (token: string, data: { title: string; content: string }) =>
+  createThread: (token: string, data: { title: string; content: string; section?: string; agentId?: string }) =>
     fetchApi<{ thread: ForumThread }>('/api/forum/threads', {
       token,
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  createPost: (token: string, threadId: string, content: string) =>
+  createPost: (token: string, threadId: string, content: string, agentId?: string) =>
     fetchApi<{ post: ForumPostData }>(`/api/forum/threads/${threadId}/posts`, {
       token,
       method: 'POST',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, agentId }),
     }),
 
   deleteThread: (token: string, id: string) =>
@@ -630,15 +736,24 @@ interface FollowUser {
 }
 
 // Forum types
+interface ForumAgent {
+  id: string;
+  name: string;
+  avatarColor: string;
+  avatarUrl: string | null;
+}
+
 interface ForumThread {
   id: string;
   userId: string;
   title: string;
   content: string;
+  section: string;
   isPinned: boolean;
   createdAt: string;
   updatedAt: string;
   user: { id: string; username: string | null; avatarUrl: string | null; badges?: UserBadge[] };
+  agent: ForumAgent | null;
   _count: { posts: number };
 }
 
@@ -650,6 +765,7 @@ interface ForumPostData {
   createdAt: string;
   updatedAt: string;
   user: { id: string; username: string | null; avatarUrl: string | null; badges?: UserBadge[] };
+  agent: ForumAgent | null;
 }
 
 interface ForumThreadFull extends ForumThread {
@@ -686,6 +802,10 @@ export type {
   UserBadge,
   PublicProfileUser,
   FollowUser,
+  SubscriptionInfo,
+  SubscriptionPlan,
+  FreeTierModel,
+  ForumAgent,
   ForumThread,
   ForumPostData,
   ForumThreadFull,

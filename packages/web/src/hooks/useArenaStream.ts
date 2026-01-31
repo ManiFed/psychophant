@@ -16,6 +16,7 @@ interface ArenaStreamCallbacks {
   onRoundComplete?: (data: { roundNumber: number }) => void;
   onConversationComplete?: (data: { totalCostCents: number }) => void;
   onWaitingForInput?: (data: { roundNumber: number }) => void;
+  onRoundResuming?: () => void;
   onError?: (data: { code: string; message: string }) => void;
 }
 
@@ -71,6 +72,9 @@ export function useArenaStream(
             break;
           case 'waiting:input':
             cb.onWaitingForInput?.(parsed.data);
+            break;
+          case 'arena:round_resuming':
+            cb.onRoundResuming?.();
             break;
           case 'error':
             cb.onError?.(parsed.data);

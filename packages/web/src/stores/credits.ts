@@ -2,11 +2,25 @@ import { create } from 'zustand';
 import { creditsApi } from '@/lib/api';
 import { useAuthStore } from './auth';
 
+interface SubscriptionInfo {
+  plan: string;
+  planName: string;
+  budgetCents: number;
+  usageCents: number;
+  extraUsageCents: number;
+  totalBudgetCents: number;
+  remainingCents: number;
+  usagePercent: number;
+  currentPeriodEnd: string;
+  autoReloadCents: number;
+}
+
 interface CreditsState {
   freeCents: number;
   purchasedCents: number;
   totalCents: number;
   lastFreeReset: string | null;
+  subscription: SubscriptionInfo | null;
   isLoading: boolean;
   error: string | null;
 
@@ -20,6 +34,7 @@ export const useCreditsStore = create<CreditsState>()((set) => ({
   purchasedCents: 0,
   totalCents: 0,
   lastFreeReset: null,
+  subscription: null,
   isLoading: false,
   error: null,
 
@@ -38,6 +53,7 @@ export const useCreditsStore = create<CreditsState>()((set) => ({
         purchasedCents: response.purchasedCents,
         totalCents: response.totalCents,
         lastFreeReset: response.lastFreeReset,
+        subscription: response.subscription || null,
         isLoading: false,
       });
     } catch (err) {
@@ -54,4 +70,13 @@ export const useCreditsStore = create<CreditsState>()((set) => ({
 // Helper to format cents as dollars
 export const formatCents = (cents: number): string => {
   return `$${(cents / 100).toFixed(2)}`;
+};
+
+// Format credits display for header
+export const formatCreditsDisplay = (state: { subscription: SubscriptionInfo | null; freeCents: number }): string => {
+  if (state.subscription) {
+    return `${state.subscription.usagePercent}% used`;
+  }
+  // Free users: show credits (freeCents = credits for now)
+  return `${state.freeCents} credits`;
 };

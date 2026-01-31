@@ -62,11 +62,17 @@ export const useConversationsStore = create<ConversationsState>()((set, get) => 
     set({ isLoading: true, error: null });
     try {
       const response = await conversationsApi.get(token, id);
-      set({
-        currentConversation: response.conversation,
-        messages: response.messages,
-        participants: response.participants,
-        isLoading: false,
+      set((state) => {
+        // Merge fetched messages with any in-progress streaming messages from SSE
+        // to prevent race conditions that cause double-output
+        const fetchedIds = new Set(response.messages.map((m) => m.id));
+        const streamingOnly = state.messages.filter((m) => !fetchedIds.has(m.id));
+        return {
+          currentConversation: response.conversation,
+          messages: [...response.messages, ...streamingOnly],
+          participants: response.participants,
+          isLoading: false,
+        };
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch conversation';
@@ -165,9 +171,12 @@ export const useConversationsStore = create<ConversationsState>()((set, get) => 
 
     try {
       const response = await conversationsApi.interject(token, id, content);
-      set((state) => ({
-        messages: [...state.messages, response.message],
-      }));
+      set((state) => {
+        if (state.messages.some((m) => m.id === response.message.id)) {
+          return state;
+        }
+        return { messages: [...state.messages, response.message] };
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to add interjection';
       set({ error: message });

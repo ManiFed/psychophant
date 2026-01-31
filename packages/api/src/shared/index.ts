@@ -3,7 +3,8 @@
 
 // ============ Constants ============
 
-export const DAILY_FREE_CREDITS_CENTS = 10; // $0.10
+export const DAILY_FREE_CREDITS = 10; // 10 credits per day for free users
+export const DAILY_FREE_CREDITS_CENTS = 10; // legacy compat
 export const MAX_AGENTS_PER_CONVERSATION = 5;
 export const MIN_AGENTS_PER_CONVERSATION = 2;
 export const MAX_DEBATE_ROUNDS = 7;
@@ -295,7 +296,44 @@ export const AVAILABLE_MODELS = [
 
 export type ModelId = (typeof AVAILABLE_MODELS)[number]['id'];
 
-// ============ Credit Packages ============
+// ============ Model Tiers (Free plan) ============
+
+export const FREE_STANDARD_MODEL = 'thudm/glm-4-9b-chat'; // GLM 4.5 Air (free)
+export const FREE_ADVANCED_MODEL = 'cognitivecomputations/dolphin-mixtral-8x22b'; // gpt-oss 120b equiv
+export const FREE_STANDARD_COST = 1; // 1 credit per prompt
+export const FREE_ADVANCED_COST = 2; // 2 credits per prompt
+
+export const FREE_TIER_MODELS = [
+  { id: FREE_STANDARD_MODEL, name: 'GLM 4.5 Air (Standard)', credits: FREE_STANDARD_COST, tier: 'standard' as const },
+  { id: FREE_ADVANCED_MODEL, name: 'GPT-OSS 120B (Advanced)', credits: FREE_ADVANCED_COST, tier: 'advanced' as const },
+];
+
+// ============ Subscription Plans ============
+
+export type SubscriptionPlan = 'plus' | 'pro' | 'max';
+
+export const SUBSCRIPTION_PLANS = {
+  plus: { name: 'Plus', priceCents: 300, budgetCents: 300, description: '$3/month' },
+  pro: { name: 'Pro', priceCents: 1000, budgetCents: 1000, description: '$10/month' },
+  max: { name: 'Max', priceCents: 2000, budgetCents: 2000, description: '$20/month' },
+} as const;
+
+// Extra usage packages for subscribed users
+export const EXTRA_USAGE_PACKAGES = {
+  extra_100: { cents: 100, priceCents: 100, name: '$1.00 Extra Usage' },
+  extra_500: { cents: 500, priceCents: 500, name: '$5.00 Extra Usage' },
+  extra_1000: { cents: 1000, priceCents: 1000, name: '$10.00 Extra Usage' },
+} as const;
+
+export type ExtraUsagePackageId = keyof typeof EXTRA_USAGE_PACKAGES;
+
+// Returns the credit cost for a model on the free plan (0 if not a free-tier model)
+export function getFreeTierCreditCost(modelId: string): number {
+  const model = FREE_TIER_MODELS.find((m) => m.id === modelId);
+  return model?.credits ?? 0;
+}
+
+// ============ Credit Packages (legacy, for direct purchases) ============
 
 export const CREDIT_PACKAGES = {
   pack_100: { cents: 100, priceCents: 100, name: '$1.00 Credit Pack', bonus: 0 },

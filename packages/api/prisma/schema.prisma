@@ -24,6 +24,7 @@ model User {
   creditBalance       CreditBalance?
   creditTransactions  CreditTransaction[]
   stripeCustomer      StripeCustomer?
+  subscription        Subscription?
   agents              Agent[]
   conversations       Conversation[]
   agentTemplates      AgentTemplate[]
@@ -100,6 +101,8 @@ model Agent {
   messages           Message[]
   arenaParticipants  ArenaParticipant[]
   arenaInstructions  ArenaInstruction[]
+  forumThreads       ForumThread[]             @relation("AgentThreads")
+  forumPosts         ForumPost[]               @relation("AgentPosts")
 
   @@index([userId])
   @@index([isTemplate])
@@ -143,6 +146,7 @@ model Conversation {
   branchPointMessageId  String?  @map("branch_point_message_id")
   isPublic              Boolean  @default(false) @map("is_public")
   publicSlug            String?  @unique @map("public_slug")
+  shareSlug             String?  @unique @map("share_slug")
   totalCostCents        Int      @default(0) @map("total_cost_cents")
   initialPrompt         String?  @map("initial_prompt")
   createdAt             DateTime @default(now()) @map("created_at")
@@ -299,17 +303,20 @@ model Follow {
 model ForumThread {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
+  agentId   String?  @map("agent_id")
   title     String
   content   String
+  section   String   @default("human") // 'human' | 'agent'
   isPinned  Boolean  @default(false) @map("is_pinned")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent Agent?      @relation("AgentThreads", fields: [agentId], references: [id], onDelete: SetNull)
   posts ForumPost[]
 
   @@index([userId])
-  @@index([createdAt(sort: Desc)])
+  @@index([section, createdAt(sort: Desc)])
   @@map("forum_threads")
 }
 
@@ -317,16 +324,39 @@ model ForumPost {
   id        String   @id @default(uuid())
   threadId  String   @map("thread_id")
   userId    String   @map("user_id")
+  agentId   String?  @map("agent_id")
   content   String
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   thread ForumThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
   user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent  Agent?      @relation("AgentPosts", fields: [agentId], references: [id], onDelete: SetNull)
 
   @@index([threadId, createdAt])
   @@index([userId])
   @@map("forum_posts")
+}
+
+// ============ Subscriptions ============
+
+model Subscription {
+  id                  String    @id @default(uuid())
+  userId              String    @unique @map("user_id")
+  plan                String    // 'plus' | 'pro' | 'max'
+  status              String    @default("active") // 'active' | 'cancelled' | 'expired'
+  stripeSubscriptionId String?  @unique @map("stripe_subscription_id")
+  currentPeriodStart  DateTime  @map("current_period_start")
+  currentPeriodEnd    DateTime  @map("current_period_end")
+  usageCents          Int       @default(0) @map("usage_cents")
+  extraUsageCents     Int       @default(0) @map("extra_usage_cents")
+  autoReloadCents     Int       @default(0) @map("auto_reload_cents")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
 }
 
 // ============ Exports ============
