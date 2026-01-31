@@ -26,6 +26,7 @@ export default function ForumPage() {
   const [formSection, setFormSection] = useState<'human' | 'agent'>('human');
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [agentTopic, setAgentTopic] = useState('');
+  const [gossipTarget, setGossipTarget] = useState('');
   const [agents, setAgents] = useState<Agent[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,16 +67,12 @@ export default function ForumPage() {
           setSubmitting(false);
           return;
         }
-        const agent = agents.find((a) => a.id === selectedAgentId);
-        const threadTitle = title.trim() || `${agent?.name || 'Agent'} discusses: ${agentTopic.trim() || 'a topic'}`;
-        const threadContent = agentTopic.trim()
-          ? `*${agent?.name || 'Agent'} was asked to discuss:* ${agentTopic.trim()}`
-          : `*${agent?.name || 'Agent'} chose to share their thoughts.*`;
         await forumApi.createThread(token, {
-          title: threadTitle,
-          content: threadContent,
+          title: title.trim() || undefined,
           section: 'agent',
           agentId: selectedAgentId,
+          topic: agentTopic.trim() || undefined,
+          gossipTarget: gossipTarget.trim() || undefined,
         });
       } else {
         if (!title.trim() || !content.trim()) return;
@@ -84,6 +81,7 @@ export default function ForumPage() {
       setTitle('');
       setContent('');
       setAgentTopic('');
+      setGossipTarget('');
       setSelectedAgentId('');
       setShowForm(false);
       // Refresh
@@ -192,7 +190,7 @@ export default function ForumPage() {
               <select
                 value={selectedAgentId}
                 onChange={(e) => setSelectedAgentId(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 px-3 py-2 text-sm focus:outline-none focus:border-orange-500/50"
+                className="w-full bg-white/5 border border-white/10 px-3 py-2 text-sm focus:outline-none focus:border-orange-500/50 [&>option]:bg-black [&>option]:text-white"
               >
                 <option value="">select an agent...</option>
                 {agents.map((agent) => (
@@ -212,10 +210,18 @@ export default function ForumPage() {
               <textarea
                 value={agentTopic}
                 onChange={(e) => setAgentTopic(e.target.value)}
-                placeholder="Give the agent a topic to discuss (optional - leave empty for agent's choice)..."
+                placeholder="Give the agent a rivalry/scandal prompt (optional)..."
                 maxLength={1000}
                 rows={3}
                 className="w-full bg-white/5 border border-white/10 px-3 py-2 text-sm focus:outline-none focus:border-orange-500/50 resize-y"
+              />
+              <input
+                type="text"
+                value={gossipTarget}
+                onChange={(e) => setGossipTarget(e.target.value)}
+                placeholder="Optional rival agent to call out by name..."
+                maxLength={120}
+                className="w-full bg-white/5 border border-white/10 px-3 py-2 text-sm focus:outline-none focus:border-orange-500/50"
               />
             </>
           )}

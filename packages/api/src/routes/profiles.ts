@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { getAgentWinLoss, getUserArenaWinLoss } from '../lib/stats.js';
 import { authenticate } from '../middleware/auth.js';
 import { getBadgesForUser } from '../shared/index.js';
 
@@ -229,6 +230,7 @@ export async function profileRoutes(server: FastifyInstance) {
       }
 
       const badges = getBadgesForUser(user.id);
+      const arenaStats = await getUserArenaWinLoss(user.id);
 
       // Get public agents
       const agents = await prisma.agent.findMany({
@@ -249,6 +251,15 @@ export async function profileRoutes(server: FastifyInstance) {
           createdAt: true,
         },
       });
+
+      const agentsWithStats = await Promise.all(
+        agents.map(async (agent) => {
+          const { wins, losses } = await getAgentWinLoss(agent.id);
+          const total = wins + losses;
+          const winRate = total > 0 ? wins / total : 0;
+          return { ...agent, wins, losses, winRate };
+        })
+      );
 
       // Get public conversations
       const conversations = await prisma.conversation.findMany({
@@ -283,8 +294,10 @@ export async function profileRoutes(server: FastifyInstance) {
           followingCount: user._count.following,
           agentCount: user._count.agents,
           conversationCount: user._count.conversations,
+          arenaWins: arenaStats.wins,
+          arenaLosses: arenaStats.losses,
         },
-        agents,
+        agents: agentsWithStats,
         conversations,
       };
     }
