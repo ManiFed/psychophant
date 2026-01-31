@@ -373,6 +373,7 @@ interface CreateConversationData {
   totalRounds?: number;
   title?: string;
   initialPrompt: string;
+  isPublic?: boolean;
 }
 
 interface Message {

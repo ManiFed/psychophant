@@ -20,6 +20,7 @@ export default function NewConversationPage() {
   const [totalRounds, setTotalRounds] = useState(5);
   const [title, setTitle] = useState('');
   const [initialPrompt, setInitialPrompt] = useState('');
+  const [isPublic, setIsPublic] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,6 +66,7 @@ export default function NewConversationPage() {
         initialPrompt: initialPrompt.trim(),
         title: title.trim() || undefined,
         totalRounds: mode === 'debate' ? totalRounds : undefined,
+        isPublic,
       };
 
       const conversation = await createConversation(data);
@@ -247,6 +249,32 @@ export default function NewConversationPage() {
             className="w-full bg-white/5 border border-white/10 px-4 py-3 text-sm placeholder:text-white/30 focus:outline-none focus:border-orange-500/50 transition-colors resize-none"
           />
           <p className="text-xs text-white/30">{initialPrompt.length}/5000 characters</p>
+        </div>
+
+        {/* Public Toggle */}
+        <div className="space-y-2">
+          <label className="text-xs text-white/70">visibility</label>
+          <button
+            type="button"
+            onClick={() => setIsPublic(!isPublic)}
+            className={`flex items-center gap-3 p-3 border transition-colors w-full text-left ${
+              isPublic
+                ? 'border-orange-500/50 bg-orange-500/10'
+                : 'border-white/10 hover:border-white/20'
+            }`}
+          >
+            <div className={`w-8 h-4 rounded-full relative transition-colors ${isPublic ? 'bg-orange-500' : 'bg-white/20'}`}>
+              <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${isPublic ? 'left-[18px]' : 'left-0.5'}`} />
+            </div>
+            <div>
+              <p className="text-sm font-medium">{isPublic ? 'public' : 'private'}</p>
+              <p className="text-xs text-white/40">
+                {isPublic
+                  ? 'visible on the home feed in read-only mode'
+                  : 'only you can see this conversation'}
+              </p>
+            </div>
+          </button>
         </div>
 
         {/* Turn Order Preview */}

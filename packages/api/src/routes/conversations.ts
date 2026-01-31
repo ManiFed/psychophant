@@ -38,6 +38,7 @@ const createConversationSchema = z.object({
   totalRounds: z.number().min(MIN_DEBATE_ROUNDS).max(MAX_DEBATE_ROUNDS).optional(),
   title: z.string().max(255).optional(),
   initialPrompt: z.string().min(1).max(5000),
+  isPublic: z.boolean().optional(),
 });
 
 const interjectionSchema = z.object({
@@ -137,6 +138,11 @@ export async function conversationRoutes(server: FastifyInstance) {
         }
 
         // Create conversation with participants
+        const isPublic = body.isPublic ?? false;
+        const publicSlug = isPublic
+          ? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+          : null;
+
         const conversation = await prisma.conversation.create({
           data: {
             userId: request.user.id,
@@ -144,6 +150,8 @@ export async function conversationRoutes(server: FastifyInstance) {
             mode: body.mode,
             totalRounds: body.mode === 'debate' ? body.totalRounds : null,
             initialPrompt: body.initialPrompt,
+            isPublic,
+            publicSlug,
             participants: {
               create: body.agentIds.map((agentId, index) => ({
                 agentId,

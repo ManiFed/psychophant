@@ -133,6 +133,17 @@ export default function DashboardLayout({
       {/* Main Content */}
       <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-8">{children}</main>
 
+      {/* Footer */}
+      <footer className="border-t border-white/5 py-6">
+        <div className="max-w-6xl mx-auto px-6 flex items-center justify-between">
+          <span className="text-xs text-white/20">psychophant</span>
+          <div className="flex items-center gap-4">
+            <Link href="/about" className="text-xs text-white/30 hover:text-white/60 transition-colors">about</Link>
+            <Link href="/docs" className="text-xs text-white/30 hover:text-white/60 transition-colors">api docs</Link>
+          </div>
+        </div>
+      </footer>
+
       {/* Credits Modal */}
       <CreditsPurchaseModal
         isOpen={isCreditsModalOpen}

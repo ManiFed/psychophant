@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { useConversationsStore } from '@/stores/conversations';
 import { useCreditsStore, formatCents } from '@/stores/credits';
 import { useConversationStream } from '@/hooks/useConversationStream';
+import { conversationsApi } from '@/lib/api';
+import { useAuthStore } from '@/stores/auth';
 import { MessageList } from '@/components/MessageBubble';
 
 export default function ConversationPage() {
@@ -32,9 +34,12 @@ export default function ConversationPage() {
 
   const { totalCents, fetchBalance } = useCreditsStore();
 
+  const { token } = useAuthStore();
   const [interjectionText, setInterjectionText] = useState('');
   const [currentAgentName, setCurrentAgentName] = useState<string | null>(null);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
 
   // Memoize callbacks to prevent unnecessary re-renders
   const handleMessageStart = useCallback((agentId: string, messageId: string) => {
@@ -179,7 +184,30 @@ export default function ConversationPage() {
           >
             &larr; back
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                if (shareUrl) {
+                  navigator.clipboard.writeText(shareUrl);
+                  setShareCopied(true);
+                  setTimeout(() => setShareCopied(false), 2000);
+                  return;
+                }
+                if (!token) return;
+                try {
+                  const result = await conversationsApi.createShareLink(token, conversationId);
+                  setShareUrl(result.shareUrl);
+                  navigator.clipboard.writeText(result.shareUrl);
+                  setShareCopied(true);
+                  setTimeout(() => setShareCopied(false), 2000);
+                } catch {
+                  // ignore
+                }
+              }}
+              className="px-2.5 py-1 text-[10px] border border-white/10 text-white/50 hover:text-white hover:border-white/30 transition-colors"
+            >
+              {shareCopied ? 'copied!' : shareUrl ? 'copy link' : 'share'}
+            </button>
             <div className="flex items-center gap-1.5 px-2.5 py-1 border border-white/10 bg-white/5">
               <span className="text-[10px] text-white/40">spent</span>
               <span className="text-xs font-medium">
