@@ -159,6 +159,9 @@ export default function PublicProfilePage() {
               <span className="text-white/40">
                 {profile.user.conversationCount} conversations
               </span>
+              <span className="text-white/40">
+                arena record {profile.user.arenaWins}-{profile.user.arenaLosses}
+              </span>
             </div>
           </div>
 
@@ -184,7 +187,7 @@ export default function PublicProfilePage() {
                 {followLoading
                   ? '...'
                   : profile.user.isFollowing
-                  ? 'following'
+                  ? 'unfollow'
                   : 'follow'}
               </button>
             ) : null}
@@ -293,6 +296,12 @@ export default function PublicProfilePage() {
                   </div>
                 </div>
                 <p className="text-xs text-white/70 line-clamp-2">{agent.role}</p>
+                <p className="text-[10px] text-white/40 mt-2">
+                  {agent.wins}W / {agent.losses}L
+                  {agent.wins + agent.losses > 0
+                    ? ` • ${Math.round(agent.winRate * 100)}% win rate`
+                    : ' • no votes yet'}
+                </p>
                 {agent.templateUses > 0 && (
                   <p className="text-xs text-white/40 mt-2">
                     used {agent.templateUses} time{agent.templateUses !== 1 ? 's' : ''}
